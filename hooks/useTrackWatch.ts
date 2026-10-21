@@ -43,6 +43,10 @@ export function useTrackWatch(input: TrackWatchInput | null) {
 
         if (playback.currentTime < PROGRESS_SAVE_MIN_SECONDS) return
 
+        if (playback.event === 'seeked' && (!Number.isFinite(playback.duration) || playback.duration <= 0)) {
+            return
+        }
+
         const now = Date.now()
         if (!force) {
             if (now - lastSavedAt.current < TIMEUPDATE_SAVE_MS) return
@@ -55,7 +59,10 @@ export function useTrackWatch(input: TrackWatchInput | null) {
             ...meta,
             currentTime: playback.currentTime,
             duration: playback.duration,
-            progress: progressPercent(playback.currentTime, playback.duration),
+            progress:
+                playback.duration > 0
+                    ? progressPercent(playback.currentTime, playback.duration)
+                    : undefined,
         })
     }, [])
 }

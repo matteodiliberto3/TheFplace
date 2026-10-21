@@ -35,6 +35,33 @@ describe('resolveSeriesResume', () => {
         ).toEqual({ season: 2, episode: 5 })
     })
 
+    it('avanza alla puntata successiva se la precedente è completata (progress >= 95)', () => {
+        expect(
+            resolveSeriesResume({
+                lastWatched: { season: 1, episode: 1, progress: 98 },
+                seasons,
+            })
+        ).toEqual({ season: 1, episode: 2 })
+    })
+
+    it('avanza alla stagione successiva se l\'ultimo episodio della stagione è completato', () => {
+        expect(
+            resolveSeriesResume({
+                lastWatched: { season: 1, episode: 2, progress: 100 },
+                seasons,
+            })
+        ).toEqual({ season: 2, episode: 1 })
+    })
+
+    it('rimane sull\'ultima puntata se è il finale dell\'intera serie', () => {
+        expect(
+            resolveSeriesResume({
+                lastWatched: { season: 2, episode: 5, progress: 100 },
+                seasons,
+            })
+        ).toEqual({ season: 2, episode: 5 })
+    })
+
     it('torna alla prima puntata disponibile come fallback', () => {
         expect(
             resolveSeriesResume({

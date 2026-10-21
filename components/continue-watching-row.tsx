@@ -5,7 +5,7 @@ import { Play, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { updateContinueEntry, WatchHistoryEntry } from '@/lib/watch-history'
+import { getLastWatchedEpisode, updateContinueEntry, WatchHistoryEntry } from '@/lib/watch-history'
 import { getContentPosterUrl } from '@/lib/content-display'
 import { getPlayerPath } from '@/lib/content-navigation'
 import { resumeStartAt } from '@/lib/watch-progress'
@@ -82,13 +82,37 @@ export function ContinueWatchingRow({ entries, upcomingSeriesIds }: ContinueWatc
         if (launchingId) return
         setLaunchingId(tileKey)
 
+        let season = entry.season
+        let episode = entry.episode
+        let currentTime = entry.currentTime
+        let duration = entry.duration
+        let progress = entry.progress
+
+        if (entry.type === 'tv') {
+            if (season == null || episode == null) {
+                const local = getLastWatchedEpisode(entry.id)
+                if (local) {
+                    season = local.season
+                    episode = local.episode
+                    progress = local.progress
+                    currentTime = local.currentTime
+                }
+            }
+
+            if (progress != null && progress >= 95 && season != null && episode != null) {
+                episode = episode + 1
+                currentTime = 0
+                progress = 0
+            }
+        }
+
         const targetUrl = getPlayerPath(entry.id, entry.type, {
-            season: entry.season,
-            episode: entry.episode,
-            startAt: resumeStartAt({
-                currentTime: entry.currentTime,
-                duration: entry.duration,
-                progress: entry.progress,
+            season,
+            episode,
+            startAt: progress != null && progress >= 95 ? undefined : resumeStartAt({
+                currentTime,
+                duration,
+                progress,
             }),
         })
 
@@ -109,9 +133,19 @@ export function ContinueWatchingRow({ entries, upcomingSeriesIds }: ContinueWatc
     return (
         <CustomScrollbar className="pb-4" containerClassName="gap-3">
             {visible.map((entry, index) => {
+                const local =
+                    entry.type === 'tv' && (entry.season == null || entry.episode == null)
+                        ? getLastWatchedEpisode(entry.id)
+                        : null
+                const s = entry.season ?? local?.season
+                const e = entry.episode ?? local?.episode
+                const p = entry.progress ?? local?.progress
+
                 const subtitle =
-                    entry.type === 'tv' && entry.season != null && entry.episode != null
-                        ? `S${entry.season} E${entry.episode}`
+                    entry.type === 'tv' && s != null && e != null
+                        ? p != null && p >= 95
+                            ? `Prossimo: S${s} E${e + 1}`
+                            : `S${s} E${e}`
                         : entry.type === 'tv'
                           ? 'Serie TV'
                           : 'Film'

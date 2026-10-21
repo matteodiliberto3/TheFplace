@@ -11,8 +11,9 @@ import { NextEpisodeOverlay } from '@/components/next-episode-overlay'
 import { TastePrompt, useTastePrompt } from '@/components/taste-prompt'
 import { getTMDBImageUrl } from '@/lib/tmdb'
 import { getPlayerPath, getSeriesPath } from '@/lib/content-navigation'
-import { resolvePlayerStartAt } from '@/lib/watch-history'
+import { getLastWatchedEpisode, resolvePlayerStartAt } from '@/lib/watch-history'
 import { isNearEnd, parseStartAtParam } from '@/lib/watch-progress'
+import { resolveSeriesResume } from '@/lib/series-resume'
 
 interface TVShowSummary {
     id: number
@@ -157,6 +158,24 @@ export default function TVPlayerPage() {
         setEnded(false)
         handledEndedEpRef.current = null
     }, [season, episode])
+
+    useEffect(() => {
+        if (!tvShowDetails?.seasons?.length) return
+        const currentEp = findEpisode(season, episode)
+        if (!currentEp) {
+            const numericId = parseInt(tvId, 10)
+            const last = Number.isFinite(numericId) ? getLastWatchedEpisode(numericId) : null
+            const resolved = resolveSeriesResume({
+                querySeason: season,
+                queryEpisode: episode,
+                lastWatched: last,
+                seasons: tvShowDetails.seasons,
+            })
+            if (resolved.season !== season || resolved.episode !== episode) {
+                router.replace(getPlayerPath(parseInt(tvId, 10), 'tv', resolved))
+            }
+        }
+    }, [episode, findEpisode, router, season, tvId, tvShowDetails])
 
     const findEpisode = useCallback(
         (seasonNum: number, episodeNum: number): Episode | null => {

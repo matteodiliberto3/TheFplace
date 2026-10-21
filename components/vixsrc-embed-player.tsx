@@ -20,7 +20,7 @@ import {
     userPausedFromTransport,
 } from '@/lib/playback-resume'
 
-const STALL_RECOVER_MS = 4000
+const STALL_RECOVER_MS = 10000
 const MAX_HLS_RECOVERIES = 5
 const MAX_HARD_RELOADS = 2
 
@@ -167,7 +167,7 @@ export function VixsrcEmbedPlayer({
                     window.clearTimeout(timeout)
                     setReady(true)
                     const resumeAt = resumeAtRef.current
-                    if (resumeAt && resumeAt > 0) {
+                    if (!Hls.isSupported() && resumeAt && resumeAt > 0) {
                         video.currentTime = resumeAt
                     }
                     void video.play().catch(() => undefined)
@@ -238,6 +238,7 @@ export function VixsrcEmbedPlayer({
                         testBandwidth: HLS_CONFIG.testBandwidth,
                         capLevelToPlayerSize: HLS_CONFIG.capLevelToPlayerSize,
                         abrEwmaDefaultEstimate: HLS_CONFIG.abrEwmaDefaultEstimate,
+                        ...(resumeAtRef.current && resumeAtRef.current > 5 ? { startPosition: resumeAtRef.current } : {}),
                     })
                     hlsRef.current = hls
                     hls.on(Hls.Events.MANIFEST_PARSED, () => {
