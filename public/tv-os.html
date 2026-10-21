@@ -2163,7 +2163,9 @@
     return null;
   }
 
-  function doOpenPlay(type, id, season, episode, startAt) {
+
+
+  function openPlay(type, id, season, episode, startAt) {
     if (type === 'tv') {
       if (!season || !episode) {
         openDetail('tv', id);
@@ -2173,11 +2175,6 @@
     } else {
       go('/living/player/movie/' + id + (startAt && startAt > 0 ? '?startAt=' + Math.floor(startAt) : ''));
     }
-  }
-
-  function openPlay(type, id, season, episode, startAt) {
-    var pos = Math.max(0, Math.floor(startAt || 0));
-    doOpenPlay(type, id, season, episode, pos);
   }
 
   function decorateTile(tile, item, fallbackType, fid, useBack, attach) {
@@ -3724,17 +3721,13 @@
 
   function attachStream(video, playlist, onFail, onLevels) {
     if (window.Hls && Hls.isSupported()) {
-      var hlsConfig = {
+      var hls = new Hls({
         enableWorker: false,
         maxBufferLength: 30,
         testBandwidth: false,
         capLevelToPlayerSize: false,
-        abrEwmaDefaultEstimate: 8000000,
-        nudgeOffset: 0.2,
-        nudgeMaxRetry: 5,
-        maxBufferHole: 0.5
-      };
-      var hls = new Hls(hlsConfig);
+        abrEwmaDefaultEstimate: 8000000
+      });
       video._tvHls = hls;
       hls.loadSource(playlist);
       hls.attachMedia(video);
@@ -3762,23 +3755,8 @@
         if (onLevels) onLevels(hls, levels, best, lockLevel);
         playWhenReady(video);
       });
-      var recoveries = 0;
       hls.on(Hls.Events.ERROR, function (_evt, data) {
-        if (!data) return;
-        if (data.details === 'bufferStalledError') {
-          playWhenReady(video);
-          return;
-        }
-        if (!data.fatal) return;
-        if (recoveries < 2 && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          recoveries += 1;
-          try { hls.recoverMediaError(); return; } catch (e) {}
-        }
-        if (recoveries < 2 && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          recoveries += 1;
-          try { hls.startLoad(); return; } catch (e) {}
-        }
-        if (onFail) onFail();
+        if (data && data.fatal && onFail) onFail();
       });
       return;
     }
@@ -3809,13 +3787,11 @@
       go('/living/' + (type === 'tv' ? 'series/' : 'movie/') + id);
     };
     root.innerHTML = '';
-    var video = null;
-    var pendingResumeSec = resumeAt;
-    var resumeRetried = false;
-    var deferredSeekDone = false;
-    var liveSource = null;
-    var activeLevelsCallback = null;
-
+    var video = document.createElement('video');
+    video.setAttribute('autoplay', 'autoplay');
+    video.setAttribute('playsinline', 'playsinline');
+    video.setAttribute('webkit-playsinline', 'true');
+    root.appendChild(video);
     var hud = el('div', 'hud');
     var hudLeft = el('div', 'hud-side');
     hudLeft.appendChild(focusBtn('action', 'Indietro', 'player-back', backHandler, true));
@@ -3865,7 +3841,6 @@
     var zone = 'hud';
     var userHud = false;
     function syncBar() {
-      if (!video) return;
       var d = video.duration;
       var t = video.currentTime || 0;
       if (d && isFinite(d) && d > 0) fill.style.width = Math.min(100, (t / d) * 100) + '%';
@@ -3976,13 +3951,34 @@
       if (ok || pauseKey) { togglePause(); return true; }
       return false;
     }
-    function hideStatus() {
-      if (statusWrap && statusWrap.parentNode) statusWrap.parentNode.removeChild(statusWrap);
-      if (userHud) return;
-      zone = 'watch';
-      hideHud();
+    video.addEventListener('timeupdate', syncBar);
+    video.addEventListener('seeked', syncBar);
+    video.addEventListener('pause', function () {
+      showCue('Pausa');
       showBar();
+      sendProgress(false);
+    });
+    video.addEventListener('play', function () {
+      if (cue.textContent === 'Pausa') cue.className = 'cue cue-hide';
+      showBar();
+    });
+    video.addEventListener('ended', function () {
+      sendProgress(true);
+      if (type === 'tv' && document.querySelector('[data-fid="player-next"]')) showHud();
+    });
+    video.addEventListener('timeupdate', function () {
+      var now = new Date().getTime();
+      if (now - lastTrack < 8000) return;
+      lastTrack = now;
+      sendProgress(false);
+    });
+    function applyResume() {
+      if (resumeAt > 5) {
+        try { video.currentTime = resumeAt; } catch (err) {}
+        resumeAt = 0;
+      }
     }
+    video.addEventListener('loadeddata', applyResume);
     function sendProgress(ended) {
       if (!video) return;
       var d = video.duration;
@@ -4011,123 +4007,6 @@
       }
       trackWatch(body);
     }
-
-    function wireVideo(v) {
-      if (pendingResumeSec > 5) {
-        v.muted = true;
-      }
-      v.addEventListener('timeupdate', syncBar);
-      v.addEventListener('seeked', function () {
-        syncBar();
-        v.muted = false;
-        playWhenReady(v);
-      });
-      v.addEventListener('pause', function () {
-        showCue('Pausa');
-        showBar();
-        sendProgress(false);
-      });
-      v.addEventListener('play', function () {
-        if (cue.textContent === 'Pausa') cue.className = 'cue cue-hide';
-        showBar();
-      });
-      v.addEventListener('ended', function () {
-        sendProgress(true);
-        if (type === 'tv' && document.querySelector('[data-fid="player-next"]')) showHud();
-      });
-      v.addEventListener('timeupdate', function () {
-        var now = new Date().getTime();
-        if (now - lastTrack < 8000) return;
-        lastTrack = now;
-        sendProgress(false);
-      });
-
-      var stallWatchdog = null;
-      function checkStall() {
-        if (stallWatchdog) window.clearTimeout(stallWatchdog);
-        stallWatchdog = window.setTimeout(function () {
-          if (!v || v.ended) return;
-          if (v.paused || v.readyState < 3) {
-            if (v._tvHls && v._tvHls.startLoad) v._tvHls.startLoad();
-            playWhenReady(v);
-          }
-        }, 2800);
-      }
-      v.addEventListener('waiting', checkStall);
-      v.addEventListener('seeking', checkStall);
-
-      function performDeferredSeek() {
-        if (deferredSeekDone || pendingResumeSec <= 5) return;
-        deferredSeekDone = true;
-        var target = pendingResumeSec;
-        try {
-          v.currentTime = target;
-        } catch (err) {
-          console.warn('Deferred seek failed:', err);
-        }
-        playWhenReady(v);
-      }
-
-      v.addEventListener('canplay', performDeferredSeek);
-      v.addEventListener('loadeddata', function () {
-        if (pendingResumeSec <= 5) hideStatus();
-      });
-      v.addEventListener('playing', function () {
-        if (stallWatchdog) window.clearTimeout(stallWatchdog);
-        if (pendingResumeSec > 5) {
-          if (v.currentTime >= (pendingResumeSec - 5)) {
-            pendingResumeSec = 0;
-            v.muted = false;
-            hideStatus();
-          }
-        } else {
-          hideStatus();
-        }
-      });
-      v.addEventListener('error', function () {
-        if (!resumeRetried && (resumeAt > 0 || (qs('startAt') && parseInt(qs('startAt'), 10) > 0))) {
-          resumeRetried = true;
-          resumeAt = 0;
-          pendingResumeSec = 0;
-          v.muted = false;
-          hardResetPlayback();
-          return;
-        }
-        showFail('Il film non parte. Torna indietro e riprova.');
-      });
-    }
-
-    function createVideo() {
-      var node = document.createElement('video');
-      node.setAttribute('autoplay', 'autoplay');
-      node.setAttribute('playsinline', 'playsinline');
-      node.setAttribute('webkit-playsinline', 'true');
-      root.insertBefore(node, root.firstChild);
-      wireVideo(node);
-      return node;
-    }
-
-    video = createVideo();
-
-    function hardResetPlayback() {
-      if (video) {
-        if (video._tvHls && video._tvHls.destroy) {
-          try { video._tvHls.destroy(); } catch (e) {}
-          delete video._tvHls;
-        }
-        if (video.parentNode) {
-          try { video.pause(); } catch (e) {}
-          video.removeAttribute('src');
-          try { video.load(); } catch (e) {}
-          video.parentNode.removeChild(video);
-        }
-      }
-      video = createVideo();
-      if (liveSource) {
-        attachStream(video, liveSource.url, fallbackNative, activeLevelsCallback);
-      }
-    }
-
     playerHud = { hidden: false, show: showHud, touch: showHud, dispose: clearHud, handleKey: handlePlayerKey };
 
     var query = 'tmdbId=' + encodeURIComponent(id) + '&type=' + type;
@@ -4140,27 +4019,6 @@
       collect('player-back');
     }
 
-    var failed = false;
-    function fallbackNative() {
-      if (!resumeRetried && (resumeAt > 0 || pendingResumeSec > 0)) {
-        resumeRetried = true;
-        resumeAt = 0;
-        pendingResumeSec = 0;
-        v.muted = false;
-        hardResetPlayback();
-        return;
-      }
-      if (failed) return;
-      failed = true;
-      if (video._tvHls && video._tvHls.destroy) video._tvHls.destroy();
-      if (liveSource && liveSource.url) {
-        video.src = liveSource.url;
-        playWhenReady(video);
-      } else {
-        showFail('Il film non parte. Torna indietro e riprova.');
-      }
-    }
-
     function startWith(master, parts) {
       var source;
       if (master.indexOf('#EXTM3U') === 0 || (parts && typeof parts === 'object')) {
@@ -4168,8 +4026,15 @@
       } else {
         source = { url: master, created: [] };
       }
-      liveSource = source;
-      activeLevelsCallback = function (hls, levels, best, lockLevel) {
+      var failed = false;
+      function fallbackNative() {
+        if (failed) return;
+        failed = true;
+        if (video._tvHls && video._tvHls.destroy) video._tvHls.destroy();
+        video.src = source.url;
+        playWhenReady(video);
+      }
+      attachStream(video, source.url, fallbackNative, function (hls, levels, best, lockLevel) {
         if (!levels || !levels.length) return;
         var order = [];
         var i;
@@ -4196,9 +4061,21 @@
           if (playerHud) playerHud.show();
         };
         collect(currentFid() || 'player-back');
-      };
-      attachStream(video, source.url, fallbackNative, activeLevelsCallback);
+      });
+      function hideStatus() {
+        if (statusWrap && statusWrap.parentNode) statusWrap.parentNode.removeChild(statusWrap);
+        if (userHud) return;
+        zone = 'watch';
+        hideHud();
+        showBar();
+      }
+      video.addEventListener('loadeddata', hideStatus);
+      video.addEventListener('playing', hideStatus);
+      video.addEventListener('error', function () {
+        showFail('Il film non parte. Torna indietro e riprova.');
+      });
     }
+
     resolvePlayback(query, function (json) {
       var master = json && json.data && json.data.master;
       var parts = json && json.data && json.data.parts;
