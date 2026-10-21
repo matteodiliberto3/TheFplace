@@ -69,6 +69,7 @@ export function VixsrcEmbedPlayer({
     const [ready, setReady] = useState(false)
     const [reloadKey, setReloadKey] = useState(0)
     const hardReloadsRef = useRef(0)
+    const isSeekingRef = useRef(false)
 
     const emit = useCallback((event: VixsrcPlayerEvent['event'], video: HTMLVideoElement, videoId?: number) => {
         const playback: VixsrcPlayerEvent = {
@@ -200,7 +201,16 @@ export function VixsrcEmbedPlayer({
                         window.setTimeout(tryPlay, 400)
                     }
                 }
-                video.onseeked = () => emit('seeked', video, videoId)
+                video.onseeking = () => {
+                    isSeekingRef.current = true
+                    hlsRef.current?.startLoad()
+                }
+                video.onseeked = () => {
+                    isSeekingRef.current = false
+                    window.clearTimeout(stallTimer)
+                    emit('seeked', video, videoId)
+                    tryPlay()
+                }
                 video.onended = () => emit('ended', video, videoId)
                 video.ontimeupdate = () => {
                     rememberPosition()
@@ -209,6 +219,8 @@ export function VixsrcEmbedPlayer({
                 video.onwaiting = () => {
                     window.clearTimeout(stallTimer)
                     const stuckAt = video.currentTime
+                    const wasSeeking = isSeekingRef.current || video.seeking
+                    const delay = wasSeeking ? 20000 : STALL_RECOVER_MS
                     stallTimer = window.setTimeout(() => {
                         if (cancelled || video.ended || userPaused) return
                         hlsRef.current?.startLoad()
@@ -216,11 +228,16 @@ export function VixsrcEmbedPlayer({
                         stallTimer = window.setTimeout(() => {
                             if (cancelled || video.ended || userPaused) return
                             if (!video.paused && video.currentTime > stuckAt + 0.25) return
-                            reloadFresh()
-                        }, STALL_RECOVER_MS)
-                    }, STALL_RECOVER_MS)
+                            if (!isSeekingRef.current && !video.seeking) {
+                                reloadFresh()
+                            } else {
+                                hlsRef.current?.startLoad()
+                            }
+                        }, delay)
+                    }, delay)
                 }
                 video.onplaying = () => {
+                    isSeekingRef.current = false
                     window.clearTimeout(stallTimer)
                     window.clearTimeout(playOkTimer)
                     playOkTimer = window.setTimeout(() => {
@@ -287,6 +304,7 @@ export function VixsrcEmbedPlayer({
             document.removeEventListener('visibilitychange', onVisible)
             video.onplay = null
             video.onpause = null
+            video.onseeking = null
             video.onseeked = null
             video.onended = null
             video.ontimeupdate = null

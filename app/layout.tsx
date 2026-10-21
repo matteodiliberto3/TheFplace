@@ -32,6 +32,11 @@ export const metadata: Metadata = {
     title: 'TheHustlePlace - Streaming Premium',
     description: 'La piattaforma di streaming più elegante e moderna',
   },
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

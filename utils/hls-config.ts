@@ -23,6 +23,17 @@ export const HLS_CONFIG = {
     capLevelToPlayerSize: false,
     abrEwmaDefaultEstimate: 8_000_000,
 
+    // Seek & buffer gap recovery
+    maxBufferHole: 0.5,
+    highBufferWatchdogPeriod: 2,
+    nudgeOffset: 0.2,
+    nudgeMaxRetry: 5,
+    nudgeOnVideoHole: true,
+    maxFragLookUpTolerance: 0.25,
+    fragLoadingTimeOut: 25000,
+    fragLoadingMaxRetry: 6,
+    fragLoadingRetryDelay: 1000,
+
     // Reduce console noise
     verbose: process.env.NODE_ENV === 'development',
 

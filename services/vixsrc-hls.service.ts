@@ -17,6 +17,7 @@ import {
     normalizeVixsrcCdnUrl,
     parseVixsrcApiSrc,
     parseVixsrcEmbedHtml,
+    readStreamTokenExpiryMs,
     rewriteM3u8Browser,
     unwrapAllOriginsBody,
     unwrapJinaBody,
@@ -29,7 +30,7 @@ export interface ResolvedVixsrcHls {
 }
 
 const VIXSRC_BASE_URL = process.env.VIXSRC_BASE_URL || 'https://vixsrc.to'
-const CACHE_TTL_SECONDS = 300
+const CACHE_TTL_SECONDS = 7200
 const BROWSER_UA =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
@@ -170,7 +171,12 @@ export async function resolveVixsrcHls(input: {
 
     if (!input.fresh) {
         const cached = await cache.get<ResolvedVixsrcHls>(cacheKey)
-        if (cached?.master && hlsStreamLooksPlayable(cached)) return cached
+        if (cached?.master && hlsStreamLooksPlayable(cached)) {
+            const expiry = readStreamTokenExpiryMs(cached)
+            if (!expiry || expiry - Date.now() > 60_000) {
+                return cached
+            }
+        }
     }
 
     const persist = async (stream: ResolvedVixsrcHls, mode: string) => {
@@ -182,7 +188,11 @@ export async function resolveVixsrcHls(input: {
             parts: stream.parts,
             videoId: stream.videoId,
         }
-        await cache.set(cacheKey, value, { ttl: CACHE_TTL_SECONDS })
+        const expiry = readStreamTokenExpiryMs(stream)
+        const ttlSeconds = expiry
+            ? Math.max(60, Math.min(CACHE_TTL_SECONDS, Math.floor((expiry - Date.now() - 60_000) / 1000)))
+            : CACHE_TTL_SECONDS
+        await cache.set(cacheKey, value, { ttl: ttlSeconds })
         if (input.type === 'tv' && input.season && input.episode) {
             void rememberVixsrcEpisodeAvailability(input.tmdbId, input.season, input.episode, true)
         }

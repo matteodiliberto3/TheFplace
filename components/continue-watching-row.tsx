@@ -9,6 +9,7 @@ import { getLastWatchedEpisode, updateContinueEntry, WatchHistoryEntry } from '@
 import { getContentPosterUrl } from '@/lib/content-display'
 import { getPlayerPath } from '@/lib/content-navigation'
 import { resumeStartAt } from '@/lib/watch-progress'
+import { prefetchPlayback } from '@/lib/player-prefetch'
 import { CustomScrollbar } from '@/components/custom-scrollbar'
 import { TastePrompt } from '@/components/taste-prompt'
 import { FeedbackMoment, Liking, WouldContinue } from '@/lib/taste-ranker'
@@ -157,6 +158,8 @@ export function ContinueWatchingRow({ entries, upcomingSeriesIds }: ContinueWatc
                 return (
                     <motion.div
                         key={tileKey}
+                        onMouseEnter={() => prefetchPlayback({ id: entry.id, type: entry.type, season: entry.season, episode: entry.episode })}
+                        onFocus={() => prefetchPlayback({ id: entry.id, type: entry.type, season: entry.season, episode: entry.episode })}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3, delay: index * 0.04, ease: [0.16, 1, 0.3, 1] }}

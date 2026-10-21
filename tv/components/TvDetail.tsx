@@ -11,6 +11,7 @@ import { TvFocus } from '@/tv/components/TvFocus'
 import { TvNav } from '@/tv/components/TvNav'
 import { Season } from '@/types'
 import { resolvePlayerStartAt } from '@/lib/watch-history'
+import { prefetchPlayback } from '@/lib/player-prefetch'
 import { useWatchHistory } from '@/hooks/useWatchHistory'
 
 interface TvDetailProps {
@@ -74,6 +75,13 @@ export function TvDetail({ id, type }: TvDetailProps) {
 
     const currentSeason = seasons.find((item) => item.season_number === season)
     const history = entries.find((item) => item.id === id && item.type === type)
+
+    useEffect(() => {
+        if (!detail) return
+        const targetSeason = type === 'tv' ? (history?.season || season || 1) : undefined
+        const targetEpisode = type === 'tv' ? (history?.episode || 1) : undefined
+        prefetchPlayback({ id, type, season: targetSeason, episode: targetEpisode })
+    }, [detail, history, id, season, type])
 
     function play(nextSeason?: number, episode?: number) {
         const startAt = resolvePlayerStartAt({
