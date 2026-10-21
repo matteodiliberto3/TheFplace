@@ -159,24 +159,6 @@ export default function TVPlayerPage() {
         handledEndedEpRef.current = null
     }, [season, episode])
 
-    useEffect(() => {
-        if (!tvShowDetails?.seasons?.length) return
-        const currentEp = findEpisode(season, episode)
-        if (!currentEp) {
-            const numericId = parseInt(tvId, 10)
-            const last = Number.isFinite(numericId) ? getLastWatchedEpisode(numericId) : null
-            const resolved = resolveSeriesResume({
-                querySeason: season,
-                queryEpisode: episode,
-                lastWatched: last,
-                seasons: tvShowDetails.seasons,
-            })
-            if (resolved.season !== season || resolved.episode !== episode) {
-                router.replace(getPlayerPath(parseInt(tvId, 10), 'tv', resolved))
-            }
-        }
-    }, [episode, findEpisode, router, season, tvId, tvShowDetails])
-
     const findEpisode = useCallback(
         (seasonNum: number, episodeNum: number): Episode | null => {
             const seasonData = tvShowDetails?.seasons.find((s) => s.season_number === seasonNum)
@@ -212,6 +194,24 @@ export default function TVPlayerPage() {
         },
         [tvShowDetails]
     )
+
+    useEffect(() => {
+        if (!tvShowDetails?.seasons?.length) return
+        const currentEp = findEpisode(season, episode)
+        if (!currentEp) {
+            const numericId = parseInt(tvId, 10)
+            const last = Number.isFinite(numericId) ? getLastWatchedEpisode(numericId) : null
+            const resolved = resolveSeriesResume({
+                querySeason: season,
+                queryEpisode: episode,
+                lastWatched: last,
+                seasons: tvShowDetails.seasons,
+            })
+            if (resolved.season !== season || resolved.episode !== episode) {
+                router.replace(getPlayerPath(parseInt(tvId, 10), 'tv', resolved))
+            }
+        }
+    }, [episode, findEpisode, router, season, tvId, tvShowDetails])
 
     const startAt = useMemo(() => {
         const runtime = findEpisode(season, episode)?.runtime
