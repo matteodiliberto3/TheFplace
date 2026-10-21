@@ -31,6 +31,8 @@ export const HLS_CONFIG = {
     nudgeOnVideoHole: true,
     maxFragLookUpTolerance: 0.25,
     fragLoadingTimeOut: 25000,
+    manifestLoadingTimeOut: 45000,
+    levelLoadingTimeOut: 45000,
     fragLoadingMaxRetry: 6,
     fragLoadingRetryDelay: 1000,
 

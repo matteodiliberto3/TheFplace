@@ -1227,7 +1227,7 @@
     if (cur) {
       if (cur.classList) {
         cur.classList.add('is-tv-focused');
-      } else if (cur.className.indexOf('is-tv-focused') < 0) {
+      } else if ((cur.className || '').indexOf('is-tv-focused') < 0) {
         cur.className = (cur.className + ' is-tv-focused').replace(/^\s+|\s+$/g, '');
       }
     }
@@ -1761,14 +1761,14 @@
     var hero = root.querySelector('.gate-hero');
     if (!hero) return;
     if (plain) {
-      if (hero.className.indexOf('is-plain') < 0) hero.className += ' is-plain';
+      var hCls = hero.className || ''; if (hCls.indexOf('is-plain') < 0) hero.className = (hCls + ' is-plain').replace(/^\s+|\s+$/g, '');
     } else {
-      hero.className = hero.className.replace(/\bis-plain\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+      hero.className = (hero.className || '').replace(/\bis-plain\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
     }
   }
 
   function paintGatePortrait(node, profile) {
-    var on = node.className.indexOf('is-on') >= 0;
+    var on = (node.className || '').indexOf('is-on') >= 0;
     node.className = 'gate-side-portrait' + (on ? ' is-on' : '');
     node.style.background = 'transparent';
     node.innerHTML = '';
@@ -3723,7 +3723,12 @@
     if (window.Hls && Hls.isSupported()) {
       var hlsOpts = {
         enableWorker: true,
-        maxBufferLength: 20,
+        startLevel: 0,
+        fragLoadingTimeOut: 45000,
+        fragLoadingMaxRetry: 6,
+        manifestLoadingTimeOut: 45000,
+        levelLoadingTimeOut: 45000,
+        maxBufferLength: 30,
         maxMaxBufferLength: 60,
         backBufferLength: 15,
         maxBufferHole: 0.5,
@@ -3731,8 +3736,7 @@
         nudgeMaxRetry: 5,
         nudgeOnVideoHole: true,
         testBandwidth: false,
-        capLevelToPlayerSize: false,
-        abrEwmaDefaultEstimate: 8000000
+        capLevelToPlayerSize: false
       };
       if (resumeAt && resumeAt > 5) {
         hlsOpts.startPosition = resumeAt;
@@ -3746,42 +3750,33 @@
         if (!hls.levels || !hls.levels.length) return;
         if (index < 0 || index >= hls.levels.length) return;
         locked = index;
-        hls.startLevel = index;
         hls.currentLevel = index;
-        hls.nextLevel = index;
-        hls.nextLoadLevel = index;
-      }
-      if (Hls.Events.LEVEL_SWITCHED) {
-        hls.on(Hls.Events.LEVEL_SWITCHED, function (_evt, data) {
-          if (locked >= 0 && data && data.level !== locked) lockLevel(locked);
-        });
       }
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         var levels = hls.levels || [];
         var best = bestLevel(levels);
-        lockLevel(best);
-        window.setTimeout(function () { lockLevel(best); }, 0);
-        window.setTimeout(function () { lockLevel(best); }, 250);
         if (onLevels) onLevels(hls, levels, best, lockLevel);
-        if (resumeAt && resumeAt > 5) {
-          try { video.currentTime = resumeAt; } catch (err) {}
-        }
         playWhenReady(video);
       });
       var recoveries = 0;
+      var recoveryTimer = null;
       if (Hls.Events.FRAG_LOADED) {
         hls.on(Hls.Events.FRAG_LOADED, function () {
           recoveries = 0;
+          if (recoveryTimer) { window.clearTimeout(recoveryTimer); recoveryTimer = null; }
         });
       }
       hls.on(Hls.Events.ERROR, function (_evt, data) {
         if (!data || !data.fatal) return;
-        if (recoveries < 4 && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        if (recoveries < 6 && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           recoveries++;
-          hls.startLoad();
+          if (recoveryTimer) window.clearTimeout(recoveryTimer);
+          recoveryTimer = window.setTimeout(function () {
+            hls.startLoad();
+          }, 1000 * Math.min(recoveries, 3));
           return;
         }
-        if (recoveries < 4 && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        if (recoveries < 6 && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           recoveries++;
           hls.recoverMediaError();
           return;
@@ -3939,6 +3934,9 @@
         seekDebounceTimer = null;
         if (target !== null) {
           try { video.currentTime = target; } catch (err) {}
+          if (video._tvHls && video._tvHls.startLoad) {
+            video._tvHls.startLoad(target);
+          }
         }
         if (video && !video.paused) {
           barTimer = window.setTimeout(function () {
@@ -4031,9 +4029,11 @@
       sendProgress(false);
     });
     function applyResume() {
-      if (resumeAt > 5) {
-        try { video.currentTime = resumeAt; } catch (err) {}
-        resumeAt = 0;
+      if (!window.Hls || !Hls.isSupported()) {
+        if (resumeAt > 5) {
+          try { video.currentTime = resumeAt; } catch (err) {}
+          resumeAt = 0;
+        }
       }
     }
     video.addEventListener('loadeddata', applyResume);
