@@ -45,21 +45,24 @@ export async function getAnnouncedRelayUrl(): Promise<string | null> {
 }
 
 export async function getHomeRelayConfig(): Promise<HomeRelayConfig | null> {
+    const sql = relaySql()
+    if (sql) {
+        await ensureTable(sql)
+        const rows = await sql<{ url: string; token: string }[]>`
+            select url, token from vixsrc_home_relay where id = 1
+        `
+        const row = rows[0]
+        if (row?.url && row?.token && isAllowedRelayPublicUrl(row.url.replace(/\/$/, ''))) {
+            return { url: row.url.replace(/\/$/, ''), token: row.token }
+        }
+    }
     if (process.env.VIXSRC_RELAY_URL && process.env.VIXSRC_RELAY_TOKEN) {
         const url = process.env.VIXSRC_RELAY_URL.replace(/\/$/, '')
         if (isAllowedRelayPublicUrl(url)) {
             return { url, token: process.env.VIXSRC_RELAY_TOKEN }
         }
     }
-    const sql = relaySql()
-    if (!sql) return null
-    await ensureTable(sql)
-    const rows = await sql<{ url: string; token: string }[]>`
-        select url, token from vixsrc_home_relay where id = 1
-    `
-    const row = rows[0]
-    if (!row || !isAllowedRelayPublicUrl(row.url)) return null
-    return { url: row.url.replace(/\/$/, ''), token: row.token }
+    return null
 }
 
 export async function saveHomeRelayUrl(url: string, token: string): Promise<boolean> {

@@ -3719,15 +3719,19 @@
     return 'HQ';
   }
 
-  function attachStream(video, playlist, onFail, onLevels) {
+  function attachStream(video, playlist, onFail, onLevels, startPosition) {
     if (window.Hls && Hls.isSupported()) {
-      var hls = new Hls({
+      var hlsCfg = {
         enableWorker: false,
         maxBufferLength: 30,
         testBandwidth: false,
         capLevelToPlayerSize: false,
         abrEwmaDefaultEstimate: 8000000
-      });
+      };
+      if (startPosition && startPosition > 5) {
+        hlsCfg.startPosition = startPosition;
+      }
+      var hls = new Hls(hlsCfg);
       video._tvHls = hls;
       hls.loadSource(playlist);
       hls.attachMedia(video);
@@ -3755,8 +3759,21 @@
         if (onLevels) onLevels(hls, levels, best, lockLevel);
         playWhenReady(video);
       });
+      var netRetries = 0;
+      var mediaRetries = 0;
       hls.on(Hls.Events.ERROR, function (_evt, data) {
-        if (data && data.fatal && onFail) onFail();
+        if (!data) return;
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRetries < 3) {
+            netRetries += 1;
+            try { hls.startLoad(); return; } catch (e) {}
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 2) {
+            mediaRetries += 1;
+            try { hls.recoverMediaError(); return; } catch (e) {}
+          }
+          if (onFail) onFail();
+        }
       });
       return;
     }
@@ -3869,6 +3886,9 @@
     function togglePause() {
       if (!video) return;
       if (video.paused) {
+        if (video._tvHls && typeof video._tvHls.startLoad === 'function') {
+          try { video._tvHls.startLoad(); } catch (err) {}
+        }
         var p = video.play();
         if (p && p.catch) p.catch(function () {});
         showCue('Play');
@@ -3974,7 +3994,9 @@
     });
     function applyResume() {
       if (resumeAt > 5) {
-        try { video.currentTime = resumeAt; } catch (err) {}
+        if (Math.abs((video.currentTime || 0) - resumeAt) > 8) {
+          try { video.currentTime = resumeAt; } catch (err) {}
+        }
         resumeAt = 0;
       }
     }
@@ -4061,7 +4083,7 @@
           if (playerHud) playerHud.show();
         };
         collect(currentFid() || 'player-back');
-      });
+      }, resumeAt);
       function hideStatus() {
         if (statusWrap && statusWrap.parentNode) statusWrap.parentNode.removeChild(statusWrap);
         if (userHud) return;
