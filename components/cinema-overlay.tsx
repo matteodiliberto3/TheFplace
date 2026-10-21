@@ -45,6 +45,18 @@ export function shouldShowNextButton(opts: {
     return opts.chromeOpen || opts.pinNext
 }
 
+export function formatCueTime(sec: number) {
+    const absSec = Math.abs(sec)
+    const sign = sec >= 0 ? '+' : '-'
+    if (absSec < 60) {
+        return `${sign}${absSec}s`
+    }
+    const m = Math.floor(absSec / 60)
+    const s = absSec % 60
+    if (s === 0) return `${sign}${m}m`
+    return `${sign}${m}m ${s}s`
+}
+
 export function formatMediaTime(total: number) {
     if (!Number.isFinite(total) || total < 0) return '0:00'
     const s = Math.floor(total)
@@ -159,12 +171,16 @@ export function CinemaOverlay({
     const [tapped, setTapped] = useState(false)
     const [muted, setMuted] = useState(false)
     const [fullscreen, setFullscreen] = useState(false)
+    const [seekCue, setSeekCue] = useState<{ text: string; dir: 'back' | 'fwd' } | null>(null)
     const fillRef = useRef<HTMLSpanElement>(null)
     const timeRef = useRef<HTMLSpanElement>(null)
     const durationRef = useRef<HTMLSpanElement>(null)
     const trackRef = useRef<HTMLButtonElement>(null)
     const dragging = useRef(false)
     const hideTimerRef = useRef(0)
+    const cueTimerRef = useRef(0)
+    const pendingSeekTimeRef = useRef<number | null>(null)
+    const seekDebounceTimerRef = useRef<number>(0)
 
     const hideChrome = useCallback(() => {
         window.clearTimeout(hideTimerRef.current)
@@ -266,7 +282,11 @@ export function CinemaOverlay({
     }, [videoRef, resetKey])
 
     useEffect(() => {
-        return () => window.clearTimeout(hideTimerRef.current)
+        return () => {
+            window.clearTimeout(hideTimerRef.current)
+            window.clearTimeout(cueTimerRef.current)
+            window.clearTimeout(seekDebounceTimerRef.current)
+        }
     }, [])
 
     useEffect(() => {
@@ -297,6 +317,14 @@ export function CinemaOverlay({
         return () => cancelAnimationFrame(frame)
     }, [videoRef])
 
+    const showCueMessage = useCallback((text: string, dir: 'back' | 'fwd') => {
+        setSeekCue({ text, dir })
+        window.clearTimeout(cueTimerRef.current)
+        cueTimerRef.current = window.setTimeout(() => {
+            setSeekCue(null)
+        }, 1100)
+    }, [])
+
     const seekFromClientX = useCallback(
         (clientX: number) => {
             const video = videoRef.current
@@ -304,16 +332,41 @@ export function CinemaOverlay({
             if (!video || !track || !Number.isFinite(video.duration)) return
             const rect = track.getBoundingClientRect()
             const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-            video.currentTime = ratio * video.duration
+            const prev = video.currentTime
+            const target = ratio * video.duration
+            video.currentTime = target
+            const delta = Math.round(target - prev)
+            if (Math.abs(delta) >= 2) {
+                showCueMessage(formatCueTime(delta), delta >= 0 ? 'fwd' : 'back')
+            }
         },
-        [videoRef]
+        [showCueMessage, videoRef]
     )
 
-    const skip = (delta: number) => {
+    const skip = useCallback((delta: number) => {
         const video = videoRef.current
         if (!video || !Number.isFinite(video.duration)) return
-        video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + delta))
-    }
+        const d = video.duration
+        const base = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : (video.currentTime || 0)
+        let next = base + delta
+        if (next < 0) next = 0
+        if (d && isFinite(d) && next > d - 0.5) next = Math.max(0, d - 0.5)
+        pendingSeekTimeRef.current = next
+
+        const diffFromCurrent = Math.round(next - (video.currentTime || 0))
+        showCueMessage(formatCueTime(diffFromCurrent), diffFromCurrent >= 0 ? 'fwd' : 'back')
+
+        window.clearTimeout(seekDebounceTimerRef.current)
+        seekDebounceTimerRef.current = window.setTimeout(() => {
+            const target = pendingSeekTimeRef.current
+            pendingSeekTimeRef.current = null
+            if (target !== null && videoRef.current) {
+                try {
+                    videoRef.current.currentTime = target
+                } catch {}
+            }
+        }, 220)
+    }, [showCueMessage, videoRef])
 
     const togglePlay = () => {
         const video = videoRef.current
@@ -346,15 +399,11 @@ export function CinemaOverlay({
             }
             if (event.key === 'ArrowLeft') {
                 event.preventDefault()
-                if (Number.isFinite(video.duration)) {
-                    video.currentTime = Math.max(0, video.currentTime - SKIP_S)
-                }
+                skip(-SKIP_S)
             }
             if (event.key === 'ArrowRight') {
                 event.preventDefault()
-                if (Number.isFinite(video.duration)) {
-                    video.currentTime = Math.min(video.duration, video.currentTime + SKIP_S)
-                }
+                skip(SKIP_S)
             }
             if (event.key === 'm' || event.key === 'M') {
                 video.muted = !video.muted
@@ -369,6 +418,23 @@ export function CinemaOverlay({
 
     return (
         <>
+            {seekCue && (
+                <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center animate-in fade-in zoom-in-90 duration-150">
+                    <div className="flex flex-col items-center justify-center rounded-2xl bg-black/75 px-7 py-5 backdrop-blur-md shadow-2xl border border-white/10 text-white">
+                        <div className="flex items-center gap-2 mb-1">
+                            <SkipChevrons dir={seekCue.dir} />
+                            <span className="text-3xl sm:text-4xl font-bold tracking-tight tabular-nums">
+                                {seekCue.text}
+                            </span>
+                            <SkipChevrons dir={seekCue.dir} />
+                        </div>
+                        <span className="text-xs uppercase tracking-wider text-white/70 font-medium">
+                            {seekCue.dir === 'fwd' ? 'Avanti' : 'Indietro'}
+                        </span>
+                    </div>
+                </div>
+            )}
+
             {!playing && !open && !chromePaused && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                     <Play className="h-14 w-14 fill-white/80 text-white/80" />

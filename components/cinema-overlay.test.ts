@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     formatMediaTime,
+    formatCueTime,
     shouldHidePlayerCursor,
     shouldShowNextButton,
     shouldShowPlayerChrome,
@@ -14,6 +15,20 @@ describe('formatMediaTime', () => {
 
     it('formatta le ore', () => {
         expect(formatMediaTime(3723)).toBe('1:02:03')
+    })
+})
+
+describe('formatCueTime', () => {
+    it('formatta i salti in secondi', () => {
+        expect(formatCueTime(10)).toBe('+10s')
+        expect(formatCueTime(-10)).toBe('-10s')
+        expect(formatCueTime(45)).toBe('+45s')
+    })
+
+    it('formatta i salti in minuti per seek lunghi', () => {
+        expect(formatCueTime(120)).toBe('+2m')
+        expect(formatCueTime(-300)).toBe('-5m')
+        expect(formatCueTime(150)).toBe('+2m 30s')
     })
 })
 

@@ -67,6 +67,7 @@ export function VixsrcEmbedPlayer({
     const [error, setError] = useState(false)
     const [streamMissing, setStreamMissing] = useState(false)
     const [ready, setReady] = useState(false)
+    const [buffering, setBuffering] = useState(false)
     const [reloadKey, setReloadKey] = useState(0)
     const hardReloadsRef = useRef(0)
     const isSeekingRef = useRef(false)
@@ -187,6 +188,7 @@ export function VixsrcEmbedPlayer({
 
                 video.onplay = () => {
                     userPaused = false
+                    setBuffering(false)
                     emit('play', video, videoId)
                 }
                 video.onpause = () => {
@@ -205,19 +207,25 @@ export function VixsrcEmbedPlayer({
                 }
                 video.onseeking = () => {
                     isSeekingRef.current = true
+                    setBuffering(true)
                 }
                 video.onseeked = () => {
                     isSeekingRef.current = false
                     window.clearTimeout(stallTimer)
+                    setBuffering(false)
                     emit('seeked', video, videoId)
                     tryPlay()
                 }
-                video.onended = () => emit('ended', video, videoId)
+                video.onended = () => {
+                    setBuffering(false)
+                    emit('ended', video, videoId)
+                }
                 video.ontimeupdate = () => {
                     rememberPosition()
                     emit('timeupdate', video, videoId)
                 }
                 video.onwaiting = () => {
+                    setBuffering(true)
                     window.clearTimeout(stallTimer)
                     const stuckAt = video.currentTime
                     const wasSeeking = isSeekingRef.current || video.seeking
@@ -239,6 +247,7 @@ export function VixsrcEmbedPlayer({
                 }
                 video.onplaying = () => {
                     isSeekingRef.current = false
+                    setBuffering(false)
                     window.clearTimeout(stallTimer)
                     window.clearTimeout(playOkTimer)
                     playOkTimer = window.setTimeout(() => {
@@ -250,9 +259,9 @@ export function VixsrcEmbedPlayer({
                 if (Hls.isSupported()) {
                     const hls = new Hls({
                         ...HLS_CONFIG,
-                        maxBufferLength: 20,
-                        maxMaxBufferLength: 60,
-                        backBufferLength: 15,
+                        maxBufferLength: 30,
+                        maxMaxBufferLength: 120,
+                        backBufferLength: 60,
                         ...(resumeAtRef.current && resumeAtRef.current > 5 ? { startPosition: resumeAtRef.current } : {}),
                     })
                     hlsRef.current = hls
@@ -365,8 +374,8 @@ export function VixsrcEmbedPlayer({
                     </div>
                 </div>
             )}
-            {!ready && !error && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+            {(!ready || buffering) && !error && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/40 transition-opacity duration-200">
                     <Spinner size="md" />
                 </div>
             )}

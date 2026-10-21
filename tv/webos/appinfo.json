@@ -7,9 +7,12 @@
   "largeIcon": "largeIcon.png",
   "splashBackground": "splashBackground.png",
   "vendor": "TheHustlePlace",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "appDescription": "Streaming su TV con telecomando",
   "resolution": "1920x1080",
   "iconColor": "#000000",
-  "disableBackHistoryAPI": true
+  "disableBackHistoryAPI": true,
+  "vendorExtensions": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+  }
 }
