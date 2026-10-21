@@ -112,11 +112,13 @@ export function VixsrcEmbedPlayer({
         }
         const onKeyDown = (event: KeyboardEvent) => {
             lastUserInputAt = Date.now()
-            const action = mediaTransportAction(event.key || '', event.keyCode || event.which || 0)
+            const key = event.key || ''
+            const action = mediaTransportAction(key, event.keyCode || event.which || 0)
             if (action) {
                 userPaused = userPausedFromTransport(action, video.paused)
             }
-            if (nativeControls && video.paused && !video.ended && !userPaused) tryPlay()
+            const isSeekKey = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Left' || key === 'Right'
+            if (nativeControls && video.paused && !video.ended && !userPaused && !isSeekKey) tryPlay()
         }
         const onVisible = () => {
             if (nativeControls && document.visibilityState === 'visible') tryPlay()
@@ -168,7 +170,7 @@ export function VixsrcEmbedPlayer({
                     window.clearTimeout(timeout)
                     setReady(true)
                     const resumeAt = resumeAtRef.current
-                    if (!Hls.isSupported() && resumeAt && resumeAt > 0) {
+                    if (resumeAt && resumeAt > 0) {
                         video.currentTime = resumeAt
                     }
                     void video.play().catch(() => undefined)
@@ -203,7 +205,6 @@ export function VixsrcEmbedPlayer({
                 }
                 video.onseeking = () => {
                     isSeekingRef.current = true
-                    hlsRef.current?.startLoad()
                 }
                 video.onseeked = () => {
                     isSeekingRef.current = false
@@ -248,13 +249,10 @@ export function VixsrcEmbedPlayer({
 
                 if (Hls.isSupported()) {
                     const hls = new Hls({
-                        enableWorker: HLS_CONFIG.enableWorker,
-                        maxBufferLength: HLS_CONFIG.maxBufferLength,
-                        maxMaxBufferLength: HLS_CONFIG.maxMaxBufferLength,
-                        backBufferLength: HLS_CONFIG.backBufferLength,
-                        testBandwidth: HLS_CONFIG.testBandwidth,
-                        capLevelToPlayerSize: HLS_CONFIG.capLevelToPlayerSize,
-                        abrEwmaDefaultEstimate: HLS_CONFIG.abrEwmaDefaultEstimate,
+                        ...HLS_CONFIG,
+                        maxBufferLength: 20,
+                        maxMaxBufferLength: 60,
+                        backBufferLength: 15,
                         ...(resumeAtRef.current && resumeAtRef.current > 5 ? { startPosition: resumeAtRef.current } : {}),
                     })
                     hlsRef.current = hls

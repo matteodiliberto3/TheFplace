@@ -84,12 +84,16 @@ export function TvDetail({ id, type }: TvDetailProps) {
     }, [detail, history, id, season, type])
 
     function play(nextSeason?: number, episode?: number) {
+        const isTargetMatch =
+            history &&
+            (type !== 'tv' ||
+                (history.season === (nextSeason ?? season) && (episode == null || history.episode === episode)))
         const startAt = resolvePlayerStartAt({
             id,
             type,
             season: nextSeason,
             episode,
-            urlStartAt: history?.currentTime,
+            urlStartAt: isTargetMatch ? history?.currentTime : undefined,
         })
         router.push(
             livingPlayerPath(id, type, {
@@ -129,7 +133,12 @@ export function TvDetail({ id, type }: TvDetailProps) {
                             <div className="mt-8 flex gap-3">
                                 <TvFocus
                                     autoFocusItem
-                                    onClick={() => play(type === 'tv' ? season : undefined, type === 'tv' ? 1 : undefined)}
+                                    onClick={() =>
+                                        play(
+                                            type === 'tv' ? (history?.season || season) : undefined,
+                                            type === 'tv' ? (history?.episode || 1) : undefined
+                                        )
+                                    }
                                     className="h-14 rounded-lg bg-white px-8 text-lg font-semibold text-black"
                                 >
                                     Riproduci
