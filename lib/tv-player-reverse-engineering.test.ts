@@ -189,7 +189,7 @@ describe('AD-HOC REVERSE ENGINEERING & VALIDATION SUITE: TV App Playback Issues'
             
             // attachStream passes startPosition to Hls
             const attachIdx = html.indexOf('function attachStream')
-            const attachCode = html.substring(attachIdx, attachIdx + 800)
+            const attachCode = html.substring(attachIdx, attachIdx + 1200)
             expect(attachCode).toContain('startPosition')
             
             // Enables worker for smooth playback on TV

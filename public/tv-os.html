@@ -3723,20 +3723,26 @@
     if (window.Hls && Hls.isSupported()) {
       var hlsOpts = {
         enableWorker: true,
-        startLevel: 0,
+        startLevel: -1, // Modalità Auto intelligente: si adatta dinamicamente alla CDN
         fragLoadingTimeOut: 45000,
         fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
         manifestLoadingTimeOut: 45000,
         levelLoadingTimeOut: 45000,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 15,
+        subtitleLoadingTimeOut: 45000,
+        subtitleLoadingMaxRetry: 4,
+        maxBufferLength: 45,
+        maxMaxBufferLength: 120,
+        backBufferLength: 60,
         maxBufferHole: 0.5,
         nudgeOffset: 0.2,
         nudgeMaxRetry: 5,
         nudgeOnVideoHole: true,
-        testBandwidth: false,
-        capLevelToPlayerSize: false
+        testBandwidth: true,
+        capLevelToPlayerSize: true,
+        abrEwmaDefaultEstimate: 3000000,
+        abrBandWidthFactor: 0.85,
+        abrBandWidthUpFactor: 0.7
       };
       if (resumeAt && resumeAt > 5) {
         hlsOpts.startPosition = resumeAt;
@@ -3748,9 +3754,8 @@
       var locked = -1;
       function lockLevel(index) {
         if (!hls.levels || !hls.levels.length) return;
-        if (index < 0 || index >= hls.levels.length) return;
         locked = index;
-        hls.currentLevel = index;
+        hls.currentLevel = index; // -1 ripristina la modalità Auto ABR, >= 0 fissa il livello
       }
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         var levels = hls.levels || [];
@@ -3816,6 +3821,7 @@
     };
     root.innerHTML = '';
     var video = document.createElement('video');
+    video.setAttribute('crossorigin', 'anonymous');
     video.setAttribute('autoplay', 'autoplay');
     video.setAttribute('playsinline', 'playsinline');
     video.setAttribute('webkit-playsinline', 'true');
@@ -4098,24 +4104,34 @@
       }
       attachStream(video, source.url, fallbackNative, function (hls, levels, best, lockLevel) {
         if (!levels || !levels.length) return;
-        var order = [];
+        var order = [-1]; // -1 rappresenta "Auto"
         var i;
-        for (i = 0; i < levels.length; i++) order.push(i);
-        order.sort(function (a, b) {
+        var indexedLevels = [];
+        for (i = 0; i < levels.length; i++) indexedLevels.push(i);
+        indexedLevels.sort(function (a, b) {
           var dh = (levels[b].height || 0) - (levels[a].height || 0);
           if (dh) return dh;
           return (levels[b].bitrate || 0) - (levels[a].bitrate || 0);
         });
-        var qPos = 0;
-        for (i = 0; i < order.length; i++) {
-          if (order[i] === best) qPos = i;
-        }
-        function setQualityLabel(index) {
+        for (i = 0; i < indexedLevels.length; i++) order.push(indexedLevels[i]);
+        var qPos = 0; // Inizia sempre in modalità Auto
+        function setQualityLabel(idx) {
           qualityBtn.innerHTML = '';
-          qualityBtn.appendChild(document.createTextNode(levelLabel(levels[index])));
+          if (idx === -1) {
+            var activeLvl = (hls.currentLevel >= 0 && levels[hls.currentLevel]) ? levels[hls.currentLevel] : null;
+            var activeText = activeLvl && activeLvl.height ? ' (' + activeLvl.height + 'p)' : '';
+            qualityBtn.appendChild(document.createTextNode('Auto' + activeText));
+          } else {
+            qualityBtn.appendChild(document.createTextNode(levelLabel(levels[idx])));
+          }
         }
         qualityBtn.style.display = 'inline-block';
-        setQualityLabel(best);
+        setQualityLabel(-1);
+        if (Hls.Events && Hls.Events.LEVEL_SWITCHED) {
+          hls.on(Hls.Events.LEVEL_SWITCHED, function () {
+            if (order[qPos] === -1) setQualityLabel(-1);
+          });
+        }
         qualityCycle = function () {
           qPos = (qPos + 1) % order.length;
           lockLevel(order[qPos]);

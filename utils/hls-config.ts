@@ -18,10 +18,13 @@ export const HLS_CONFIG = {
     lowLatencyMode: false,
     backBufferLength: 90,
 
-    // Le playlist arrivano da blob: senza stima alta hls.js parte dal 480p
-    testBandwidth: false,
-    capLevelToPlayerSize: false,
-    abrEwmaDefaultEstimate: 8_000_000,
+    // Adaptive Bitrate (ABR) intelligente e resiliente
+    testBandwidth: true,
+    capLevelToPlayerSize: true,
+    abrEwmaDefaultEstimate: 3_000_000,
+    abrBandWidthFactor: 0.85,
+    abrBandWidthUpFactor: 0.7,
+    abrMaxWithRealBitrate: true,
 
     // Seek & buffer gap recovery
     maxBufferHole: 0.5,

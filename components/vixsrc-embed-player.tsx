@@ -259,16 +259,19 @@ export function VixsrcEmbedPlayer({
                 if (Hls.isSupported()) {
                     const hls = new Hls({
                         ...HLS_CONFIG,
-                        maxBufferLength: 30,
+                        maxBufferLength: 45,
                         maxMaxBufferLength: 120,
                         backBufferLength: 60,
+                        fragLoadingTimeOut: 45000,
+                        fragLoadingMaxRetry: 6,
+                        fragLoadingRetryDelay: 1000,
+                        manifestLoadingTimeOut: 45000,
+                        levelLoadingTimeOut: 45000,
+                        startLevel: -1, // Modalità Auto: scala automaticamente
+                        autoStartLoad: true,
                         ...(resumeAtRef.current && resumeAtRef.current > 5 ? { startPosition: resumeAtRef.current } : {}),
                     })
                     hlsRef.current = hls
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        const best = pickHighestHlsLevel(hls.levels)
-                        hls.startLevel = best
-                    })
                     hls.loadSource(playlist)
                     hls.attachMedia(video)
                     let recoveries = 0
@@ -383,6 +386,7 @@ export function VixsrcEmbedPlayer({
                 ref={videoRef}
                 className="h-full w-full bg-black object-contain"
                 controls={nativeControls}
+                crossOrigin="anonymous"
                 playsInline
                 autoPlay
                 aria-label={title}
