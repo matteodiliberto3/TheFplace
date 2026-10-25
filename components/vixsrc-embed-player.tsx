@@ -10,7 +10,7 @@ import { CinemaOverlay } from '@/components/cinema-overlay'
 import { usePlayerChrome } from '@/components/player-chrome-context'
 import { ContentType } from '@/lib/content-navigation'
 import { pickHighestHlsLevel } from '@/lib/hls-quality'
-import { HLS_CONFIG } from '@/utils/hls-config'
+import { getHlsConfigForDevice, HLS_CONFIG } from '@/utils/hls-config'
 import { createVixsrcBrowserSource, msUntilHlsRefresh, readStreamTokenExpiryMs } from '@/lib/vixsrc-hls'
 import { fetchResolvedPlayback } from '@/lib/player-resolve'
 import { VixsrcPlayerEvent } from '@/lib/vixsrc-player-events'
@@ -257,16 +257,9 @@ export function VixsrcEmbedPlayer({
                 video.onloadedmetadata = onReady
 
                 if (Hls.isSupported()) {
+                    const deviceConfig = getHlsConfigForDevice()
                     const hls = new Hls({
-                        ...HLS_CONFIG,
-                        maxBufferLength: 45,
-                        maxMaxBufferLength: 120,
-                        backBufferLength: 60,
-                        fragLoadingTimeOut: 45000,
-                        fragLoadingMaxRetry: 6,
-                        fragLoadingRetryDelay: 1000,
-                        manifestLoadingTimeOut: 45000,
-                        levelLoadingTimeOut: 45000,
+                        ...deviceConfig,
                         startLevel: -1, // Modalità Auto: scala automaticamente
                         autoStartLoad: true,
                         ...(resumeAtRef.current && resumeAtRef.current > 5 ? { startPosition: resumeAtRef.current } : {}),

@@ -1,3 +1,5 @@
+import { isWebosUserAgent } from '@/tv/lib/paths'
+
 // HLS.js configuration utility
 // This helps reduce debug noise and improve performance
 
@@ -50,6 +52,24 @@ export const HLS_CONFIG = {
     }
 }
 
+/** Configurazione ottimizzata per Smart TV (webOS / Tizen) con RAM e decoder limitati */
+export function getHlsConfigForDevice() {
+    const isTV = typeof navigator !== 'undefined' && isWebosUserAgent(navigator.userAgent)
+    if (!isTV) {
+        return HLS_CONFIG
+    }
+
+    return {
+        ...HLS_CONFIG,
+        // Su Smart TV limitiamo la memoria buffer per evitare crash del media engine
+        maxBufferLength: 20,
+        maxMaxBufferLength: 40,
+        backBufferLength: 10,
+        nudgeMaxRetry: 8,
+        maxBufferHole: 0.6,
+    }
+}
+
 // Function to configure HLS.js globally
 export function configureHLS() {
     if (typeof window !== 'undefined') {
@@ -58,32 +78,28 @@ export function configureHLS() {
             // Override console methods to filter HLS.js logs
             const originalLog = console.log
             const originalWarn = console.warn
+            const originalError = console.error
 
-            console.log = (...args: any[]) => {
-                const message = args.join(' ')
-                if (!message.includes('[log] >') && !message.includes('hls.js')) {
-                    originalLog.apply(console, args)
+            console.log = function (...args) {
+                if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
+                    return
                 }
+                originalLog.apply(console, args)
             }
 
-            console.warn = (...args: any[]) => {
-                const message = args.join(' ')
-                if (!message.includes('[log] >') && !message.includes('hls.js')) {
-                    originalWarn.apply(console, args)
+            console.warn = function (...args) {
+                if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
+                    return
                 }
+                originalWarn.apply(console, args)
+            }
+
+            console.error = function (...args) {
+                if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
+                    return
+                }
+                originalError.apply(console, args)
             }
         }
     }
 }
-
-// Function to clean up HLS.js configuration
-export function cleanupHLS() {
-    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
-        // Restore original console methods
-        console.log = console.log
-        console.warn = console.warn
-    }
-}
-
-
-
