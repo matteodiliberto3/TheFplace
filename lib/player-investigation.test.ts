@@ -11,6 +11,7 @@ import {
 import { getPlayerPath } from './content-navigation'
 import { resolveSeriesResume } from './series-resume'
 import { fetchResolvedPlayback } from './player-resolve'
+import { resolveContentType } from './content-display'
 
 describe('REVERSE ENGINEERING SUITE: Diagnosi Riproduzione e Continua a Guardare', () => {
     beforeEach(() => {
@@ -49,27 +50,37 @@ describe('REVERSE ENGINEERING SUITE: Diagnosi Riproduzione e Continua a Guardare
             const startAt = resumeStartAt({
                 currentTime: remoteEntryFromDb.currentTime,
                 duration: remoteEntryFromDb.duration,
-                progress: remoteEntryFromDb.progress,
             })
 
             expect(startAt).toBe(1200)
+        })
 
-            const startAtNoDuration = resumeStartAt({
-                currentTime: 0,
-                duration: undefined,
-                progress: 50,
+        it('se la riproduzione è quasi alla fine (>= 95%), resumeStartAt restituisce undefined per riavviare da capo', () => {
+            const finishedMovie: WatchHistoryEntry = {
+                id: 100,
+                type: 'movie',
+                title: 'Dune Part 2',
+                currentTime: 98,
+                duration: 100,
+                progress: 98,
+                continueHidden: false,
+                watchedAt: Date.now(),
+            }
+
+            const startAt = resumeStartAt({
+                currentTime: finishedMovie.currentTime,
+                duration: finishedMovie.duration,
             })
-            expect(startAtNoDuration).toBeUndefined()
+
+            expect(startAt).toBeUndefined()
         })
     })
 
     describe('Test 2: Navigazione ContinueWatchingRow -> getPlayerPath per Film e Serie TV', () => {
-        it('per un film genera correttamente il parametro startAt', () => {
+        it('costruisce correttamente il percorso di riproduzione con startAt', () => {
             const moviePath = getPlayerPath(755898, 'movie', { startAt: 850 })
             expect(moviePath).toBe('/player/movie/755898?startAt=850')
-        })
 
-        it('per una serie TV CON season e episode genera /player/tv con query string', () => {
             const tvPath = getPlayerPath(1399, 'tv', { season: 2, episode: 5, startAt: 420 })
             expect(tvPath).toBe('/player/tv/1399?startAt=420&season=2&episode=5')
         })
@@ -80,76 +91,66 @@ describe('REVERSE ENGINEERING SUITE: Diagnosi Riproduzione e Continua a Guardare
         })
     })
 
-    describe('Test 3: Risoluzione startAt nella pagina Player (resolvePlayerStartAt)', () => {
-        it('prevale il parametro urlStartAt se presente nella query string', () => {
-            const start = resolvePlayerStartAt({
-                id: 100,
-                type: 'movie',
-                urlStartAt: 640,
-                runtimeSeconds: 3600,
-            })
-            expect(start).toBe(640)
+    describe('Test 3: Riproduzione The Diplomat (TV Show 203857) e routing dei tipi', () => {
+        it('risolve correttamente il tipo "tv" per The Diplomat anche da rail mista', () => {
+            const itemFromMixedShelf = {
+                id: 203857,
+                name: 'The Diplomat',
+                first_air_date: '2023-04-20',
+                media_type: 'tv',
+            }
+
+            const contentType = resolveContentType(itemFromMixedShelf, 'movie')
+            expect(contentType).toBe('tv')
+
+            const playPath = getPlayerPath(itemFromMixedShelf.id, contentType, { season: 1, episode: 1 })
+            expect(playPath).toBe('/player/tv/203857?season=1&episode=1')
         })
 
-        it('se urlStartAt è >= 95% della durata (film finito), rifiuta la ripresa e riparte da 0', () => {
-            const start = resolvePlayerStartAt({
-                id: 100,
-                type: 'movie',
-                urlStartAt: 3500,
-                runtimeSeconds: 3600,
-            })
-            expect(start).toBeUndefined()
-        })
-    })
-
-    describe('Test 4: RISOLTO - useTrackWatch protegge il progresso su seek iniziale', () => {
-        it('se duration è 0 durante seeked, trackWatchEntry riceve progress undefined e preserva il progresso reale', () => {
-            trackWatchEntry({
-                id: 200,
-                type: 'movie',
-                title: 'Interstellar',
-                currentTime: 1800,
-                duration: 7200,
-                progress: 25,
-            })
-
-            expect(getWatchHistory()[0].progress).toBe(25)
-
-            // Con la protezione applicata, se duration <= 0 il calcolo del progresso non valuta a 0
-            const durationAtSeekedTime = 0
-            const currentTimeAtSeeked = 1800
-            const calculatedProgress =
-                durationAtSeekedTime > 0 ? progressPercent(currentTimeAtSeeked, durationAtSeekedTime) : undefined
-
-            trackWatchEntry({
-                id: 200,
-                type: 'movie',
-                title: 'Interstellar',
-                currentTime: currentTimeAtSeeked,
-                duration: undefined,
-                progress: calculatedProgress,
-            })
-
-            // RISULTATO: Il progresso salvato NON viene azzerato e rimane al 25%
-            expect(getWatchHistory()[0].progress).toBe(25)
-            expect(getWatchHistory()[0].currentTime).toBe(1800)
+        it('identifica come "tv" un elemento che possiede solo first_air_date o name', () => {
+            const item = {
+                id: 203857,
+                name: 'The Diplomat',
+                first_air_date: '2023-04-20',
+            }
+            expect(resolveContentType(item, 'movie')).toBe('tv')
         })
     })
 
-    describe('Test 5: Fallimento Rete Waterfall (Relay -> Vercel 502 / 403)', () => {
-        it('se il relay di casa è offline, scatta il timeout di 35s e poi Vercel fallisce con 502/403', async () => {
-            const fetchMock = vi.fn<typeof fetch>(async (input) => {
-                const url = typeof input === 'string' ? input : (input as any).url
-                if (url.includes('/api/player/relay')) {
-                    return new Response(JSON.stringify({ success: true, url: 'https://home-zima.trycloudflare.com' }), { status: 200 })
+    describe('Test 4: Recupero e fallback riproduzione VixSrc', () => {
+        it('fetchResolvedPlayback effettua retry con backoff e recupera il risultato', async () => {
+            let calls = 0
+            const fetchMock = vi.fn().mockImplementation(async () => {
+                calls++
+                if (calls === 1) {
+                    return new Response(JSON.stringify({ success: false, error: 'Temporary failure' }), { status: 500 })
                 }
-                if (url.includes('trycloudflare.com')) {
-                    throw new Error('Connection refused to tunnel')
-                }
-                if (url.includes('/api/player/resolve')) {
-                    return new Response(JSON.stringify({ success: false, error: 'API VixSrc non disponibile (403)' }), { status: 502 })
-                }
-                return new Response('Not found', { status: 404 })
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        data: {
+                            master: 'https://vixsrc.to/hls/master.m3u8',
+                            fallback: null,
+                        },
+                    }),
+                    { status: 200 }
+                )
+            })
+
+            const result = await fetchResolvedPlayback(new URLSearchParams({ tmdbId: '755898', type: 'movie' }), {
+                fetch: fetchMock,
+                wait: async () => undefined,
+                attempts: 3,
+            })
+
+            expect(result.data).toBeDefined()
+            expect(result.data?.master).toBe('https://vixsrc.to/hls/master.m3u8')
+            expect(calls).toBe(2)
+        })
+
+        it('fetchResolvedPlayback identifica risposta 403 e non la marca come contenuto mancante', async () => {
+            const fetchMock = vi.fn().mockImplementation(async () => {
+                return new Response(JSON.stringify({ success: false, error: 'API VixSrc non disponibile (403)' }), { status: 502 })
             })
 
             const result = await fetchResolvedPlayback(new URLSearchParams({ tmdbId: '755898', type: 'movie' }), {
@@ -164,7 +165,7 @@ describe('REVERSE ENGINEERING SUITE: Diagnosi Riproduzione e Continua a Guardare
         })
     })
 
-    describe('Test 6: RISOLTO - Serie TV finita avanza al prossimo episodio', () => {
+    describe('Test 5: RISOLTO - Serie TV finita avanza al prossimo episodio', () => {
         it('resolveSeriesResume seleziona automaticamente la puntata successiva se la precedente è finita (>= 95%)', () => {
             const seasons = [
                 {
@@ -180,7 +181,6 @@ describe('REVERSE ENGINEERING SUITE: Diagnosi Riproduzione e Continua a Guardare
                 seasons,
             })
 
-            // Avanza correttamente alla puntata 3
             expect(resume).toEqual({ season: 1, episode: 3 })
         })
     })

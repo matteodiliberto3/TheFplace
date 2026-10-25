@@ -9,6 +9,7 @@ import { TastePrompt, useTastePrompt } from '@/components/taste-prompt'
 import { useTrackWatch } from '@/hooks/useTrackWatch'
 import { resolvePlayerStartAt } from '@/lib/watch-history'
 import { parseStartAtParam } from '@/lib/watch-progress'
+import { getPlayerPath } from '@/lib/content-navigation'
 import { Movie } from '@/types'
 import { PageSpinner } from '@/components/ui/spinner'
 
@@ -81,9 +82,29 @@ export default function MoviePlayerPage() {
                         runtime: tmdbMovie.runtime || 0,
                         genres: tmdbMovie.genres || [],
                     })
-                } else {
-                    setMovie(createFallbackMovie(movieId))
+                    return
                 }
+
+                // Se la chiamata a movies fallisce, verifichiamo se l'ID appartiene a una serie TV
+                try {
+                    const tvResponse = await fetch(`/api/tmdb/tv/${movieId}`)
+                    const tvData = await tvResponse.json()
+                    if (tvData.success && tvData.data) {
+                        const startAt = parseStartAtParam(searchParams.get('startAt'))
+                        router.replace(
+                            getPlayerPath(parseInt(movieId, 10), 'tv', {
+                                season: 1,
+                                episode: 1,
+                                startAt,
+                            })
+                        )
+                        return
+                    }
+                } catch {
+                    // Fallback a film generico se la verifica TV fallisce
+                }
+
+                setMovie(createFallbackMovie(movieId))
             } catch {
                 setMovie(createFallbackMovie(movieId))
             } finally {
@@ -92,7 +113,7 @@ export default function MoviePlayerPage() {
         }
 
         fetchMovieDetails()
-    }, [movieId])
+    }, [movieId, router, searchParams])
 
     const tmdbId = movie?.tmdb_id || movie?.id
     const startAt = useMemo(
@@ -162,23 +183,26 @@ export default function MoviePlayerPage() {
                                 </div>
                                 <div>
                                     <h3 className="text-lg font-semibold mb-2">Dettagli</h3>
-                                    <div className="space-y-2 text-gray-300">
-                                        <p>
-                                            <span className="font-medium">Data di uscita:</span>{' '}
-                                            {movie.release_date || 'N/D'}
-                                        </p>
-                                        <p>
-                                            <span className="font-medium">Durata:</span> {movie.runtime || 0} minuti
-                                        </p>
-                                        <p>
-                                            <span className="font-medium">Valutazione:</span> ⭐ {movie.vote_average}/10
-                                        </p>
+                                    <div className="space-y-2 text-sm text-gray-300">
+                                        <div>
+                                            <span className="text-gray-400">Data di uscita:</span>{' '}
+                                            {movie.release_date || 'Non disponibile'}
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-400">Valutazione:</span>{' '}
+                                            {movie.vote_average.toFixed(1)}/10
+                                        </div>
                                         {movie.genres && movie.genres.length > 0 && (
-                                            <p>
-                                                <span className="font-medium">Generi:</span>{' '}
+                                            <div>
+                                                <span className="text-gray-400">Generi:</span>{' '}
                                                 {movie.genres.map((g) => g.name).join(', ')}
-                                            </p>
+                                            </div>
                                         )}
+                                        {movie.runtime ? (
+                                            <div>
+                                                <span className="text-gray-400">Durata:</span> {movie.runtime} min
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             </div>
@@ -186,26 +210,22 @@ export default function MoviePlayerPage() {
                     </div>
                 }
             >
-                <div className="relative w-full h-full">
+                {tmdbId ? (
                     <VixsrcEmbedPlayer
-                        tmdbId={movie.tmdb_id || movie.id}
+                        key={tmdbId}
+                        tmdbId={tmdbId}
                         type="movie"
                         title={movie.title}
                         startAt={startAt}
-                        onPlayback={trackPlayback}
+                        onPlaybackProgress={trackPlayback}
                         onEnded={handleEnded}
-                        onBack={() => router.back()}
-                        unavailableDescription="Questo film non è attualmente disponibile per lo streaming su vixsrc.to"
                     />
-                    {taste.moment && (
-                        <TastePrompt
-                            title={taste.title}
-                            moment={taste.moment}
-                            onSubmit={taste.submit}
-                            onSkip={taste.skip}
-                        />
-                    )}
-                </div>
+                ) : null}
+                <TastePrompt
+                    moment={taste.moment}
+                    onRate={taste.rate}
+                    onDismiss={taste.dismiss}
+                />
             </PlayerShell>
         </ErrorBoundary>
     )

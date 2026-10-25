@@ -15,10 +15,29 @@ export function getContentTitle(item: ContentItem, type: ContentType = 'movie'):
 }
 
 export function resolveContentType(
-    item: { contentType?: ContentType; type?: ContentType },
+    item: {
+        contentType?: ContentType
+        type?: ContentType
+        media_type?: string
+        first_air_date?: string
+        name?: string
+        title?: string
+    },
     fallback: ContentType = 'movie'
 ): ContentType {
-    return item.contentType ?? item.type ?? fallback
+    if (item.contentType === 'movie' || item.contentType === 'tv') {
+        return item.contentType
+    }
+    if (item.type === 'movie' || item.type === 'tv') {
+        return item.type
+    }
+    if (item.media_type === 'movie' || item.media_type === 'tv') {
+        return item.media_type
+    }
+    if (item.first_air_date !== undefined || (item.name !== undefined && !item.title)) {
+        return 'tv'
+    }
+    return fallback
 }
 
 export function getContentPosterUrl(path?: string | null, size: 'w500' | 'w780' | 'original' = 'w500') {

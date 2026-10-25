@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { MovieDetailView, MovieDetails } from '@/components/movie-detail-view'
-import { getPlayerPath, isWatchableSearchParam } from '@/lib/content-navigation'
+import { getDetailsPath, getPlayerPath, isWatchableSearchParam } from '@/lib/content-navigation'
 import { toast } from 'sonner'
 import { PageSpinner } from '@/components/ui/spinner'
 
@@ -46,9 +46,22 @@ export default function MovieDetailPage() {
                         runtime: m.runtime,
                         genres: m.genres ?? [],
                     })
-                } else {
-                    throw new Error('Film non trovato')
+                    return
                 }
+
+                // Se non è un film, verifica se si tratta di una Serie TV (es. ID di una serie cercato per errore su /movie/[id])
+                try {
+                    const tvResponse = await fetch(`/api/tmdb/tv/${movieId}`)
+                    const tvData = await tvResponse.json()
+                    if (tvData.success && tvData.data) {
+                        router.replace(getDetailsPath(Number(movieId), 'tv', { watchable }))
+                        return
+                    }
+                } catch {
+                    // Ignora errore fallback TV e mostra errore film
+                }
+
+                throw new Error('Film non trovato')
             } catch {
                 setError('Impossibile caricare il film')
                 toast.error('Non siamo riusciti a caricare i dettagli del film.')
@@ -58,7 +71,7 @@ export default function MovieDetailPage() {
         }
 
         fetchMovie()
-    }, [movieId])
+    }, [movieId, router, watchable])
 
     if (loading) {
         return <PageSpinner />

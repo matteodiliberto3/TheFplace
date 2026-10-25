@@ -42,6 +42,8 @@ describe('content-display', () => {
     it('preferisce contentType sull item', () => {
         expect(resolveContentType({ contentType: 'tv' }, 'movie')).toBe('tv')
         expect(resolveContentType({ type: 'tv' }, 'movie')).toBe('tv')
+        expect(resolveContentType({ media_type: 'tv' }, 'movie')).toBe('tv')
+        expect(resolveContentType({ first_air_date: '2023-04-20', name: 'The Diplomat' }, 'movie')).toBe('tv')
         expect(resolveContentType({}, 'movie')).toBe('movie')
     })
 })
