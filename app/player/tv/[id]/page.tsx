@@ -62,6 +62,7 @@ export default function TVPlayerPage() {
     const [ended, setEnded] = useState(false)
     const fetchedId = useRef<string | null>(null)
     const handledEndedEpRef = useRef<string | null>(null)
+    const isTransitioningRef = useRef(false)
 
     useEffect(() => {
         if (fetchedId.current === tvId) return
@@ -157,6 +158,7 @@ export default function TVPlayerPage() {
         setNearEnd(false)
         setEnded(false)
         handledEndedEpRef.current = null
+        isTransitioningRef.current = false
     }, [season, episode])
 
     const findEpisode = useCallback(
@@ -196,7 +198,7 @@ export default function TVPlayerPage() {
     )
 
     useEffect(() => {
-        if (!tvShowDetails?.seasons?.length) return
+        if (!tvShowDetails?.seasons?.length || isTransitioningRef.current) return
         const currentEp = findEpisode(season, episode)
         if (!currentEp) {
             const numericId = parseInt(tvId, 10)
@@ -239,6 +241,7 @@ export default function TVPlayerPage() {
             exitPlayer()
             return
         }
+        isTransitioningRef.current = true
         setEnded(false)
         setOfferNext(false)
         setNearEnd(false)

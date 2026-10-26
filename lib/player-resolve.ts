@@ -97,6 +97,10 @@ async function attemptResolve(
             const retryable = isRetryablePlayerResolveStatus(response.status)
             if (timeoutMs) {
                 if (missing) return { fallback: false, result: { error, missing: true } }
+                // Se il relay risponde con 401 Unauthorized o non autorizzato, non ritentare: fallback immediato su Vercel
+                if (response.status === 401 || (typeof json.error === 'string' && json.error.toLowerCase().includes('unauthorized'))) {
+                    return { fallback: true }
+                }
                 if (retryable && attempt < attempts) {
                     await wait(PLAYER_RESOLVE_RETRY_MS * attempt)
                     continue
