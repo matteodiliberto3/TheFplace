@@ -15,7 +15,10 @@
     "test:e2e:prod": "npm run build && node scripts/e2e-prod.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:all": "npm run test && npm run test:e2e:prod",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "test:live:smoke": "node scripts/verify-live-stream.mjs",
+    "test:live:e2e": "playwright test -c playwright.live.config.ts",
+    "test:live": "npm run test:live:smoke && npm run test:live:e2e"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.0.4",
