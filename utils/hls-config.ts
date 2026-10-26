@@ -70,36 +70,51 @@ export function getHlsConfigForDevice() {
     }
 }
 
+let originalConsoleLog: typeof console.log | null = null
+let originalConsoleWarn: typeof console.warn | null = null
+let originalConsoleError: typeof console.error | null = null
+
 // Function to configure HLS.js globally
 export function configureHLS() {
     if (typeof window !== 'undefined') {
         // Suppress HLS.js debug logs in production
-        if (process.env.NODE_ENV === 'production') {
-            // Override console methods to filter HLS.js logs
-            const originalLog = console.log
-            const originalWarn = console.warn
-            const originalError = console.error
+        if (process.env.NODE_ENV === 'production' && !originalConsoleLog) {
+            originalConsoleLog = console.log
+            originalConsoleWarn = console.warn
+            originalConsoleError = console.error
 
             console.log = function (...args) {
                 if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
                     return
                 }
-                originalLog.apply(console, args)
+                originalConsoleLog?.apply(console, args)
             }
 
             console.warn = function (...args) {
                 if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
                     return
                 }
-                originalWarn.apply(console, args)
+                originalConsoleWarn?.apply(console, args)
             }
 
             console.error = function (...args) {
                 if (args[0] && typeof args[0] === 'string' && args[0].includes('[HLS]')) {
                     return
                 }
-                originalError.apply(console, args)
+                originalConsoleError?.apply(console, args)
             }
         }
+    }
+}
+
+// Function to clean up HLS.js configuration
+export function cleanupHLS() {
+    if (typeof window !== 'undefined' && originalConsoleLog) {
+        console.log = originalConsoleLog
+        if (originalConsoleWarn) console.warn = originalConsoleWarn
+        if (originalConsoleError) console.error = originalConsoleError
+        originalConsoleLog = null
+        originalConsoleWarn = null
+        originalConsoleError = null
     }
 }

@@ -211,21 +211,27 @@ export default function MoviePlayerPage() {
                 }
             >
                 {tmdbId ? (
-                    <VixsrcEmbedPlayer
-                        key={tmdbId}
-                        tmdbId={tmdbId}
-                        type="movie"
-                        title={movie.title}
-                        startAt={startAt}
-                        onPlaybackProgress={trackPlayback}
-                        onEnded={handleEnded}
-                    />
+                    <div className="relative w-full h-full">
+                        <VixsrcEmbedPlayer
+                            key={tmdbId}
+                            tmdbId={tmdbId}
+                            type="movie"
+                            title={movie.title}
+                            startAt={startAt}
+                            onPlayback={trackPlayback}
+                            onEnded={handleEnded}
+                            onBack={() => router.back()}
+                        />
+                        {taste.moment && (
+                            <TastePrompt
+                                title={taste.title}
+                                moment={taste.moment}
+                                onSubmit={taste.submit}
+                                onSkip={taste.skip}
+                            />
+                        )}
+                    </div>
                 ) : null}
-                <TastePrompt
-                    moment={taste.moment}
-                    onRate={taste.rate}
-                    onDismiss={taste.dismiss}
-                />
             </PlayerShell>
         </ErrorBoundary>
     )
