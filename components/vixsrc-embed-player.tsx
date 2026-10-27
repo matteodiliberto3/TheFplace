@@ -166,20 +166,17 @@ export function VixsrcEmbedPlayer({
                 revokeSource = source.revoke
                 const playlist = source.url
                 const videoId = payload.data.videoId
+                let readyTriggered = false
                 const onReady = () => {
-                    if (cancelled) return
+                    if (cancelled || readyTriggered) return
+                    readyTriggered = true
                     window.clearTimeout(timeout)
                     setReady(true)
                     const resumeAt = resumeAtRef.current
-                    if (resumeAt && resumeAt > 0) {
+                    if (!Hls.isSupported() && resumeAt && resumeAt > 0) {
                         video.currentTime = resumeAt
                     }
-                    const playPromise = video.play()
-                    if (playPromise !== undefined) {
-                        playPromise.catch(() => {
-                            setBuffering(false)
-                        })
-                    }
+                    void video.play().catch(() => undefined)
                 }
                 const expiry = readStreamTokenExpiryMs(payload.data)
                 const refreshIn = expiry ? msUntilHlsRefresh(expiry) : null
@@ -260,11 +257,6 @@ export function VixsrcEmbedPlayer({
                     }, 20000)
                 }
                 video.onloadedmetadata = onReady
-                video.oncanplay = onReady
-
-                if (typeof window !== 'undefined' && !window.MediaSource && (window as unknown as { ManagedMediaSource?: unknown }).ManagedMediaSource) {
-                    (window as unknown as { MediaSource?: unknown }).MediaSource = (window as unknown as { ManagedMediaSource: unknown }).ManagedMediaSource
-                }
 
                 if (Hls.isSupported()) {
                     const deviceConfig = getHlsConfigForDevice()
@@ -324,7 +316,6 @@ export function VixsrcEmbedPlayer({
             video.onwaiting = null
             video.onplaying = null
             video.onloadedmetadata = null
-            video.oncanplay = null
             hlsRef.current?.destroy()
             hlsRef.current = null
             revokeSource?.()

@@ -6,41 +6,18 @@ export function Spinner({
     className?: string
 }) {
     const dim = {
-        sm: 'w-5 h-5',
-        md: 'w-7 h-7',
-        lg: 'w-9 h-9',
+        sm: 'w-5 h-5 border-2',
+        md: 'w-7 h-7 border-2',
+        lg: 'w-9 h-9 border-2',
     }[size]
 
     return (
-        <svg
-            className={`animate-spin text-white ${dim} ${className}`}
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
+        <div
+            className={`rounded-full border-white/20 border-t-white animate-spin ${dim} ${className}`}
             role="status"
             aria-label="Caricamento"
-            style={{ willChange: 'transform', transformOrigin: 'center' }}
-        >
-            {/* Traccia circolare uniforme sottile (identica a border-2 border-white/20) */}
-            <circle
-                className="opacity-20"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="2"
-            />
-            {/* Quarto di cerchio superiore bianco puro (identico a border-t-white, senza cunei o asimmetrie) */}
-            <circle
-                className="opacity-100"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeDasharray="15.71 47.13"
-            />
-        </svg>
+            style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+        />
     )
 }
 
