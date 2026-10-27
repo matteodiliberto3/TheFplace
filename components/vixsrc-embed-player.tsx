@@ -174,7 +174,12 @@ export function VixsrcEmbedPlayer({
                     if (resumeAt && resumeAt > 0) {
                         video.currentTime = resumeAt
                     }
-                    void video.play().catch(() => undefined)
+                    const playPromise = video.play()
+                    if (playPromise !== undefined) {
+                        playPromise.catch(() => {
+                            setBuffering(false)
+                        })
+                    }
                 }
                 const expiry = readStreamTokenExpiryMs(payload.data)
                 const refreshIn = expiry ? msUntilHlsRefresh(expiry) : null
@@ -255,6 +260,11 @@ export function VixsrcEmbedPlayer({
                     }, 20000)
                 }
                 video.onloadedmetadata = onReady
+                video.oncanplay = onReady
+
+                if (typeof window !== 'undefined' && !window.MediaSource && (window as unknown as { ManagedMediaSource?: unknown }).ManagedMediaSource) {
+                    (window as unknown as { MediaSource?: unknown }).MediaSource = (window as unknown as { ManagedMediaSource: unknown }).ManagedMediaSource
+                }
 
                 if (Hls.isSupported()) {
                     const deviceConfig = getHlsConfigForDevice()
@@ -314,6 +324,7 @@ export function VixsrcEmbedPlayer({
             video.onwaiting = null
             video.onplaying = null
             video.onloadedmetadata = null
+            video.oncanplay = null
             hlsRef.current?.destroy()
             hlsRef.current = null
             revokeSource?.()

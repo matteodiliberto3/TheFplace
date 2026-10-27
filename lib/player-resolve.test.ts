@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
     PLAYER_RESOLVE_ATTEMPTS,
     RELAY_CONFIG_PATH,
@@ -6,6 +6,7 @@ import {
     fetchResolvedPlayback,
     isMissingVixsrcStreamError,
     isRetryablePlayerResolveStatus,
+    resetRelayCircuit,
 } from './player-resolve'
 
 const RELAY = 'https://casa.trycloudflare.com'
@@ -31,6 +32,9 @@ function mockFetch(handlers: { relay?: string | null; resolve: (url: string) => 
 }
 
 describe('player-resolve', () => {
+    beforeEach(() => {
+        resetRelayCircuit()
+    })
     it('riconosce i 502 transitori e gli errori di titolo assente', () => {
         expect(isRetryablePlayerResolveStatus(502)).toBe(true)
         expect(isRetryablePlayerResolveStatus(400)).toBe(false)
@@ -178,5 +182,58 @@ describe('player-resolve', () => {
         expect(result.missing).toBe(true)
         const urls = fetchImpl.mock.calls.map((call) => requestUrl(call[0]))
         expect(urls.some((url) => url.includes('/api/player/resolve'))).toBe(false)
+    })
+
+    it('Happy Eyeballs: se il relay è lento o appeso oltre il probe budget, Vercel vince la corsa', async () => {
+        const fetchImpl = mockFetch({
+            relay: RELAY,
+            resolve: async (url) => {
+                if (url.startsWith(RELAY)) {
+                    await new Promise((r) => setTimeout(r, 200))
+                    return new Response(JSON.stringify(STREAM), { status: 200 })
+                }
+                return new Response(JSON.stringify(STREAM), { status: 200 })
+            },
+        })
+
+        const result = await fetchResolvedPlayback(new URLSearchParams({ tmdbId: '203857', type: 'tv' }), {
+            fetch: fetchImpl,
+            wait: async () => undefined,
+            probeBudgetMs: 20,
+            bypassCircuit: true,
+        })
+
+        expect(result.data?.videoId).toBe(629782)
+        const urls = fetchImpl.mock.calls.map((call) => requestUrl(call[0]))
+        expect(urls).toContain('/api/player/resolve?tmdbId=203857&type=tv')
+    })
+
+    it('Circuit Breaker: dopo un fallimento del relay, la chiamata successiva salta subito il relay', async () => {
+        let relayCalls = 0
+        const fetchImpl = mockFetch({
+            relay: RELAY,
+            resolve: async (url) => {
+                if (url.startsWith(RELAY)) {
+                    relayCalls++
+                    return new Response(JSON.stringify({ success: false, error: 'relay giù' }), { status: 502 })
+                }
+                return new Response(JSON.stringify(STREAM), { status: 200 })
+            },
+        })
+
+        await fetchResolvedPlayback(new URLSearchParams({ tmdbId: '1', type: 'movie' }), {
+            fetch: fetchImpl,
+            wait: async () => undefined,
+            probeBudgetMs: 20,
+            bypassCircuit: true,
+        })
+        expect(relayCalls).toBe(1)
+
+        const result2 = await fetchResolvedPlayback(new URLSearchParams({ tmdbId: '2', type: 'movie' }), {
+            fetch: fetchImpl,
+            wait: async () => undefined,
+        })
+        expect(result2.data?.videoId).toBe(629782)
+        expect(relayCalls).toBe(1)
     })
 })

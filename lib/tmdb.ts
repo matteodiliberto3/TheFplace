@@ -83,7 +83,8 @@ export async function fetchFromTMDB<T>(endpoint: string): Promise<T> {
     }
 
     const baseUrl = 'https://api.themoviedb.org/3'
-    const url = `${baseUrl}/${endpoint}?api_key=${apiKey}&language=it-IT&region=IT`
+    const joiner = endpoint.includes('?') ? '&' : '?'
+    const url = `${baseUrl}/${endpoint}${joiner}api_key=${apiKey}&language=it-IT&region=IT`
 
     try {
         const response = await fetch(url, {

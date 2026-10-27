@@ -52,22 +52,45 @@ export const HLS_CONFIG = {
     }
 }
 
-/** Configurazione ottimizzata per Smart TV (webOS / Tizen) con RAM e decoder limitati */
+/** Configurazione ottimizzata per Smart TV (webOS / Tizen) o Mobile (smartphone/tablet su rete cellulare) */
 export function getHlsConfigForDevice() {
-    const isTV = typeof navigator !== 'undefined' && isWebosUserAgent(navigator.userAgent)
-    if (!isTV) {
-        return HLS_CONFIG
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : ''
+    const isTV = isWebosUserAgent(ua)
+    if (isTV) {
+        return {
+            ...HLS_CONFIG,
+            // Su Smart TV limitiamo la memoria buffer per evitare crash del media engine
+            maxBufferLength: 20,
+            maxMaxBufferLength: 40,
+            backBufferLength: 10,
+            nudgeMaxRetry: 8,
+            maxBufferHole: 0.6,
+        }
     }
 
-    return {
-        ...HLS_CONFIG,
-        // Su Smart TV limitiamo la memoria buffer per evitare crash del media engine
-        maxBufferLength: 20,
-        maxMaxBufferLength: 40,
-        backBufferLength: 10,
-        nudgeMaxRetry: 8,
-        maxBufferHole: 0.6,
+    const isTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1
+    const isSmall = typeof window !== 'undefined' && window.innerWidth <= 820
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (isTouch && isSmall)
+
+    if (isMobile) {
+        return {
+            ...HLS_CONFIG,
+            capLevelToPlayerSize: true,
+            abrEwmaDefaultEstimate: 1_200_000,
+            maxBufferLength: 15,
+            maxMaxBufferLength: 30,
+            backBufferLength: 10,
+            fragLoadingTimeOut: 15000,
+            manifestLoadingTimeOut: 15000,
+            levelLoadingTimeOut: 15000,
+            fragLoadingMaxRetry: 4,
+            fragLoadingRetryDelay: 500,
+            maxBufferHole: 0.5,
+            nudgeOnVideoHole: true,
+        }
     }
+
+    return HLS_CONFIG
 }
 
 let originalConsoleLog: typeof console.log | null = null
