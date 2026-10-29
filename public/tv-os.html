@@ -3887,6 +3887,9 @@
         var levels = hls.levels || [];
         var best = bestLevel(levels);
         if (onLevels) onLevels(hls, levels, best, lockLevel);
+        if (resumeAt && resumeAt > 5) {
+          try { video.currentTime = resumeAt; } catch (e) {}
+        }
         playWhenReady(video);
       });
       var recoveries = 0;
@@ -4203,14 +4206,23 @@
       sendProgress(false);
     });
     function applyResume() {
-      if (!window.Hls || !Hls.isSupported()) {
-        if (resumeAt > 5) {
-          try { video.currentTime = resumeAt; } catch (err) {}
-          resumeAt = 0;
-        }
+      if (resumeAt > 5) {
+        try { video.currentTime = resumeAt; } catch (err) {}
+        resumeAt = 0;
       }
     }
+    video.addEventListener('loadedmetadata', applyResume);
     video.addEventListener('loadeddata', applyResume);
+    var startupWatchdog = window.setTimeout(function () {
+      if (video && video.currentTime < 5 && resumeAt > 5) {
+        console.warn('[TV Player] Startup watchdog: synchronizing playhead to resumeAt:', resumeAt);
+        try { video.currentTime = resumeAt; } catch (e) {}
+        playWhenReady(video);
+      }
+    }, 3500);
+    video.addEventListener('playing', function () {
+      if (startupWatchdog) { window.clearTimeout(startupWatchdog); startupWatchdog = null; }
+    });
     function sendProgress(ended) {
       if (!video) return;
       var d = video.duration;
