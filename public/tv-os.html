@@ -3852,12 +3852,12 @@
         maxBufferLength: 30, // 30s forward per stabilità di decodifica
         maxMaxBufferLength: 60, // Massimo 60s in memoria
         backBufferLength: 15, // Libera memoria buffer dai segmenti passati
-        maxBufferHole: 0.8, // Tolleranza ai micro-buchi tra chunk audio/video
+        maxBufferHole: 1.2, // Tolleranza ai micro-buchi tra chunk audio/video
         highBufferWatchdogPeriod: 2,
         nudgeOffset: 0.2,
-        nudgeMaxRetry: 8,
+        nudgeMaxRetry: 10,
         nudgeOnVideoHole: true,
-        maxFragLookUpTolerance: 0.25,
+        maxFragLookUpTolerance: 0.5,
         testBandwidth: true,
         capLevelToPlayerSize: true,
         abrEwmaDefaultEstimate: 3000000,
@@ -4041,6 +4041,7 @@
     var zone = 'hud';
     var userHud = false;
     function syncBar() {
+      if (pendingSeekTime !== null || (video && video.seeking)) return;
       var d = video.duration;
       var t = video.currentTime || 0;
       if (d && isFinite(d) && d > 0) fill.style.width = Math.min(100, (t / d) * 100) + '%';
@@ -4080,6 +4081,7 @@
     }
     var seekDebounceTimer = null;
     var pendingSeekTime = null;
+    var lastSeekTarget = null;
     function syncBarWithTime(t) {
       var d = video.duration;
       if (d && isFinite(d) && d > 0) fill.style.width = Math.min(100, (t / d) * 100) + '%';
@@ -4095,7 +4097,16 @@
       if (d && isFinite(d) && next > d - 0.5) next = Math.max(0, d - 0.5);
       pendingSeekTime = next;
       var diffFromCurrent = Math.round(next - (video.currentTime || 0));
-      showCue((diffFromCurrent > 0 ? '+' : '') + diffFromCurrent + ' s');
+      var absDiff = Math.abs(diffFromCurrent);
+      var cueStr = '';
+      if (absDiff >= 60) {
+        var cm = Math.floor(absDiff / 60);
+        var cs = absDiff % 60;
+        cueStr = (diffFromCurrent > 0 ? '+' : '-') + cm + 'm' + (cs > 0 ? ' ' + cs + 's' : '');
+      } else {
+        cueStr = (diffFromCurrent > 0 ? '+' : '') + diffFromCurrent + ' s';
+      }
+      showCue(cueStr);
       syncBarWithTime(next);
       transport.className = 'transport';
       if (barTimer) window.clearTimeout(barTimer);
@@ -4106,7 +4117,11 @@
         seekDebounceTimer = null;
         if (target !== null) {
           showSpinner();
+          lastSeekTarget = target;
           try { video.currentTime = target; } catch (err) {}
+          if (video._tvHls && video._tvHls.startLoad) {
+            video._tvHls.startLoad(target);
+          }
           if (video && video.paused) {
             var pr = video.play();
             if (pr && pr.catch) pr.catch(function () {});
@@ -4350,16 +4365,23 @@
         clearSeekStall();
         seekStallTimer = window.setTimeout(function () {
           if (video && video.seeking && video._tvHls) {
-            console.warn('[TV Player] Seek stall detected (>5s), recovering');
+            console.warn('[TV Player] Seek stall detected (>5s), recovering to target:', lastSeekTarget);
             try {
-              video.currentTime = Math.max(0, video.currentTime + 0.3);
-              video._tvHls.recoverMediaError();
+
+              if (lastSeekTarget !== null && Math.abs((video.currentTime || 0) - lastSeekTarget) > 2) {
+                video.currentTime = lastSeekTarget;
+              }
+              if (video._tvHls.startLoad) {
+                video._tvHls.startLoad(lastSeekTarget !== null ? lastSeekTarget : -1);
+              }
+              video.currentTime = Math.max(0, (video.currentTime || 0) + 0.2);
             } catch (e) {}
           }
         }, 5000);
       });
       video.addEventListener('seeked', function () {
         clearSeekStall();
+        lastSeekTarget = null;
         hideStatus();
         syncBar();
       });
