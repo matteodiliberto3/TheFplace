@@ -165,8 +165,8 @@ describe('AD-HOC REVERSE ENGINEERING & VALIDATION SUITE: TV App Playback Issues'
             // mediaTransportAction returns null!
             // userPaused stays false!
             // If the native TV controls paused the video to scrub, tryPlay() immediately unpauses!
-            const key = 'ArrowRight'
-            const keyCode = 39
+            const key: string = 'ArrowRight'
+            const keyCode: number = 39
             const isTransport = (key === 'MediaPause' || keyCode === 19 || key === 'MediaPlay' || keyCode === 415)
             expect(isTransport).toBe(false) // Left/Right arrows are NOT recognized as transport actions!
         })

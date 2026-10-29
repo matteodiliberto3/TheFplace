@@ -3719,36 +3719,133 @@
     return 'HQ';
   }
 
+  function scoreAudioTrack(track) {
+    if (!track) return -1;
+    var score = 0;
+    if (track.bitrate && track.bitrate > 0) {
+      score += Math.round(track.bitrate / 1000);
+    }
+    var ch = 0;
+    if (track.channels) {
+      var chStr = String(track.channels);
+      if (chStr.indexOf('5.1') !== -1) {
+        ch = 6;
+      } else if (chStr.indexOf('7.1') !== -1) {
+        ch = 8;
+      } else {
+        ch = parseInt(chStr, 10) || 2;
+      }
+    }
+    if (ch >= 6) {
+      score += 1000;
+    } else if (ch >= 2) {
+      score += 100;
+    }
+    var text = ((track.name || '') + ' ' + (track.audioCodec || '')).toLowerCase();
+    if (text.indexOf('5.1') !== -1 || text.indexOf('surround') !== -1) score += 500;
+    if (text.indexOf('dolby') !== -1 || text.indexOf('ac-3') !== -1 || text.indexOf('ec-3') !== -1 || text.indexOf('eac3') !== -1) score += 400;
+    if (text.indexOf('hq') !== -1 || text.indexOf('high') !== -1 || text.indexOf('hd') !== -1) score += 200;
+    return score;
+  }
+
+  function setupAudioOptimization(hls, video) {
+    var lastAudioSwitchTime = 0;
+    function checkAudio() {
+      if (!hls || !hls.audioTracks || hls.audioTracks.length <= 1) return;
+      if (!video || video.paused || video.seeking || video.readyState < 3) return;
+      var now = Date.now();
+      if (now - lastAudioSwitchTime < 20000) return;
+
+      var currentIdx = hls.audioTrack >= 0 ? hls.audioTrack : 0;
+      var curr = hls.audioTracks[currentIdx];
+      var currLang = (curr ? (curr.lang || curr.name || '') : '').toLowerCase().slice(0, 2);
+
+      var sameLangTracks = [];
+      for (var i = 0; i < hls.audioTracks.length; i++) {
+        var t = hls.audioTracks[i];
+        var tLang = (t.lang || t.name || '').toLowerCase();
+        if ((currLang && tLang.indexOf(currLang) !== -1) || (!currLang && i === currentIdx)) {
+          sameLangTracks.push({ idx: i, score: scoreAudioTrack(t), track: t });
+        }
+      }
+      if (sameLangTracks.length <= 1) return;
+
+      sameLangTracks.sort(function (a, b) { return b.score - a.score; });
+      var best = sameLangTracks[0];
+      var base = sameLangTracks[sameLangTracks.length - 1];
+
+      var bw = hls.bandwidthEstimate || 0;
+      var forwardBuffer = 0;
+      if (video.buffered && video.buffered.length > 0) {
+        var ct = video.currentTime || 0;
+        for (var b = 0; b < video.buffered.length; b++) {
+          if (video.buffered.start(b) <= ct && ct <= video.buffered.end(b)) {
+            forwardBuffer = video.buffered.end(b) - ct;
+            break;
+          }
+        }
+      }
+
+      var isStable = (bw >= 3500000 && forwardBuffer >= 6);
+      if (isStable && currentIdx !== best.idx) {
+        lastAudioSwitchTime = now;
+        console.log('[TV Audio] Banda stabile (' + Math.round(bw / 1000) + ' kbps, buffer ' + forwardBuffer.toFixed(1) + 's): upgrade audio a', best.track.name || best.idx);
+        hls.audioTrack = best.idx;
+      } else if (!isStable && bw < 2000000 && currentIdx !== base.idx) {
+        lastAudioSwitchTime = now;
+        console.log('[TV Audio] Banda ridotta (' + Math.round(bw / 1000) + ' kbps): rollback audio a', base.track.name || base.idx);
+        hls.audioTrack = base.idx;
+      }
+    }
+
+    if (Hls.Events.AUDIO_TRACKS_UPDATED) {
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, checkAudio);
+    }
+    if (Hls.Events.LEVEL_SWITCHED) {
+      hls.on(Hls.Events.LEVEL_SWITCHED, checkAudio);
+    }
+    if (Hls.Events.FRAG_LOADED) {
+      hls.on(Hls.Events.FRAG_LOADED, checkAudio);
+    }
+  }
+
   function attachStream(video, playlist, onFail, onLevels, resumeAt) {
     if (window.Hls && Hls.isSupported()) {
       var hlsOpts = {
         enableWorker: true,
+        enableSoftwareAES: true, // Decifratura AES affidabile su hardware webOS
+        startPosition: (resumeAt && resumeAt > 5) ? resumeAt : undefined,
         startLevel: -1, // Modalità Auto intelligente: si adatta dinamicamente alla CDN
-        fragLoadingTimeOut: 45000,
+        fragLoadingTimeOut: 30000,
         fragLoadingMaxRetry: 6,
         fragLoadingRetryDelay: 1000,
         manifestLoadingTimeOut: 45000,
         levelLoadingTimeOut: 45000,
         subtitleLoadingTimeOut: 45000,
         subtitleLoadingMaxRetry: 4,
-        maxBufferLength: 45,
-        maxMaxBufferLength: 120,
-        backBufferLength: 60,
-        maxBufferHole: 0.5,
+        maxBufferLength: 20, // 20s forward: evita saturazione RAM SourceBuffer su Smart TV
+        maxMaxBufferLength: 40, // Massimo 40s in memoria
+        backBufferLength: 10, // Libera memoria buffer dai segmenti passati
+        maxBufferHole: 0.8, // Tolleranza ai micro-buchi tra chunk audio/video
+        highBufferWatchdogPeriod: 2,
         nudgeOffset: 0.2,
-        nudgeMaxRetry: 5,
+        nudgeMaxRetry: 8,
         nudgeOnVideoHole: true,
+        maxFragLookUpTolerance: 0.25,
         testBandwidth: true,
         capLevelToPlayerSize: true,
         abrEwmaDefaultEstimate: 3000000,
         abrBandWidthFactor: 0.85,
-        abrBandWidthUpFactor: 0.7
+        abrBandWidthUpFactor: 0.7,
+        maxAudioFramesDrift: 1, // Sincronizzazione precisa audio/video senza derive PTS
+        forceKeyFrameOnDiscontinuity: true
       };
       if (resumeAt && resumeAt > 5) {
         hlsOpts.startPosition = resumeAt;
       }
       var hls = new Hls(hlsOpts);
       video._tvHls = hls;
+      setupAudioOptimization(hls, video);
       hls.loadSource(playlist);
       hls.attachMedia(video);
       var locked = -1;
@@ -3765,14 +3862,24 @@
       });
       var recoveries = 0;
       var recoveryTimer = null;
+      var lastMediaErrorTime = 0;
+      var mediaErrorInRow = 0;
       if (Hls.Events.FRAG_LOADED) {
         hls.on(Hls.Events.FRAG_LOADED, function () {
-          recoveries = 0;
           if (recoveryTimer) { window.clearTimeout(recoveryTimer); recoveryTimer = null; }
         });
       }
+      var stablePlaybackTimer = null;
+      video.addEventListener('playing', function () {
+        if (stablePlaybackTimer) window.clearTimeout(stablePlaybackTimer);
+        stablePlaybackTimer = window.setTimeout(function () {
+          recoveries = 0;
+          mediaErrorInRow = 0;
+        }, 15000);
+      });
       hls.on(Hls.Events.ERROR, function (_evt, data) {
         if (!data || !data.fatal) return;
+        var now = Date.now();
         if (recoveries < 6 && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           recoveries++;
           if (recoveryTimer) window.clearTimeout(recoveryTimer);
@@ -3781,10 +3888,35 @@
           }, 1000 * Math.min(recoveries, 3));
           return;
         }
-        if (recoveries < 6 && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          if (now - lastMediaErrorTime < 12000) {
+            mediaErrorInRow++;
+          } else {
+            mediaErrorInRow = 1;
+          }
+          lastMediaErrorTime = now;
           recoveries++;
-          hls.recoverMediaError();
-          return;
+
+          if (mediaErrorInRow === 1) {
+            console.warn('[TV Player] Media decode glitch (tier 1): recovering media error');
+            hls.recoverMediaError();
+            return;
+          }
+          if (mediaErrorInRow === 2) {
+            console.warn('[TV Player] Media error repeated (tier 2): swapping audio codec and recovering');
+            try { hls.swapAudioCodec(); } catch (e) {}
+            hls.recoverMediaError();
+            return;
+          }
+          if (mediaErrorInRow <= 5) {
+            var levels = hls.levels || [];
+            var curr = hls.currentLevel >= 0 ? hls.currentLevel : (hls.nextAutoLevel >= 0 ? hls.nextAutoLevel : (levels.length - 1));
+            var lower = Math.max(0, curr - 1);
+            console.warn('[TV Player] Media error persisted (tier 3): stepping down level from', curr, 'to', lower);
+            hls.currentLevel = lower;
+            hls.recoverMediaError();
+            return;
+          }
         }
         if (onFail) onFail();
       });
@@ -4094,6 +4226,10 @@
       function fallbackNative() {
         if (failed) return;
         failed = true;
+        if (source && source.url && source.url.indexOf('blob:') === 0) {
+          showFail('Errore riproduzione stream. Torna indietro e riprova.');
+          return;
+        }
         if (video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl')) {
           if (video._tvHls && video._tvHls.destroy) video._tvHls.destroy();
           video.src = source.url;
@@ -4150,6 +4286,10 @@
       video.addEventListener('loadeddata', hideStatus);
       video.addEventListener('playing', hideStatus);
       video.addEventListener('error', function () {
+        if (video._tvHls) {
+          console.warn('[TV Player] Native video error intercepted, delegating to Hls.js recovery:', video.error);
+          return;
+        }
         showFail('Il film non parte. Torna indietro e riprova.');
       });
     }

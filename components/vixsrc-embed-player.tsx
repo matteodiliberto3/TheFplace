@@ -10,7 +10,7 @@ import { CinemaOverlay } from '@/components/cinema-overlay'
 import { usePlayerChrome } from '@/components/player-chrome-context'
 import { ContentType } from '@/lib/content-navigation'
 import { pickHighestHlsLevel } from '@/lib/hls-quality'
-import { getHlsConfigForDevice, HLS_CONFIG } from '@/utils/hls-config'
+import { getHlsConfigForDevice, HLS_CONFIG, scoreAudioTrack } from '@/utils/hls-config'
 import { createVixsrcBrowserSource, msUntilHlsRefresh, readStreamTokenExpiryMs } from '@/lib/vixsrc-hls'
 import { fetchResolvedPlayback } from '@/lib/player-resolve'
 import { VixsrcPlayerEvent } from '@/lib/vixsrc-player-events'
@@ -270,20 +270,97 @@ export function VixsrcEmbedPlayer({
                     hls.loadSource(playlist)
                     hls.attachMedia(video)
                     let recoveries = 0
+                    let lastMediaErrorTime = 0
+                    let mediaErrorInRow = 0
+
+                    const setupAudioOptimization = (instance: Hls) => {
+                        let lastAudioSwitchTime = 0
+                        const checkAudio = () => {
+                            if (cancelled || !instance.audioTracks || instance.audioTracks.length <= 1) return
+                            if (!video || video.paused || video.seeking || video.readyState < 3) return
+                            const now = Date.now()
+                            if (now - lastAudioSwitchTime < 20000) return
+
+                            const currentIdx = instance.audioTrack >= 0 ? instance.audioTrack : 0
+                            const curr = instance.audioTracks[currentIdx]
+                            const currLang = (curr ? (curr.lang || curr.name || '') : '').toLowerCase().slice(0, 2)
+
+                            const sameLangTracks = instance.audioTracks
+                                .map((t, idx) => ({ idx, score: scoreAudioTrack(t), track: t }))
+                                .filter(({ track, idx }) => {
+                                    const tLang = (track.lang || track.name || '').toLowerCase()
+                                    return (currLang && tLang.includes(currLang)) || (!currLang && idx === currentIdx)
+                                })
+                            if (sameLangTracks.length <= 1) return
+
+                            sameLangTracks.sort((a, b) => b.score - a.score)
+                            const best = sameLangTracks[0]
+                            const base = sameLangTracks[sameLangTracks.length - 1]
+
+                            const bw = instance.bandwidthEstimate || 0
+                            let forwardBuffer = 0
+                            if (video.buffered && video.buffered.length > 0) {
+                                const ct = video.currentTime || 0
+                                for (let b = 0; b < video.buffered.length; b++) {
+                                    if (video.buffered.start(b) <= ct && ct <= video.buffered.end(b)) {
+                                        forwardBuffer = video.buffered.end(b) - ct
+                                        break
+                                    }
+                                }
+                            }
+
+                            const isStable = bw >= 3500000 && forwardBuffer >= 6
+                            if (isStable && currentIdx !== best.idx) {
+                                lastAudioSwitchTime = now
+                                instance.audioTrack = best.idx
+                            } else if (!isStable && bw < 2000000 && currentIdx !== base.idx) {
+                                lastAudioSwitchTime = now
+                                instance.audioTrack = base.idx
+                            }
+                        }
+
+                        instance.on(Hls.Events.AUDIO_TRACKS_UPDATED, checkAudio)
+                        instance.on(Hls.Events.LEVEL_SWITCHED, checkAudio)
+                        instance.on(Hls.Events.FRAG_LOADED, checkAudio)
+                    }
+                    setupAudioOptimization(hls)
+
                     hls.on(Hls.Events.FRAG_LOADED, () => {
                         recoveries = 0
                     })
                     hls.on(Hls.Events.ERROR, (_event, data) => {
                         if (!data.fatal || cancelled) return
+                        const now = Date.now()
                         if (recoveries < MAX_HLS_RECOVERIES && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                             recoveries += 1
                             hls.startLoad()
                             return
                         }
                         if (recoveries < MAX_HLS_RECOVERIES && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                            if (now - lastMediaErrorTime < 12000) {
+                                mediaErrorInRow += 1
+                            } else {
+                                mediaErrorInRow = 1
+                            }
+                            lastMediaErrorTime = now
                             recoveries += 1
-                            hls.recoverMediaError()
-                            return
+
+                            if (mediaErrorInRow === 1) {
+                                hls.recoverMediaError()
+                                return
+                            }
+                            if (mediaErrorInRow === 2) {
+                                try { hls.swapAudioCodec() } catch {}
+                                hls.recoverMediaError()
+                                return
+                            }
+                            if (mediaErrorInRow <= 5) {
+                                const curr = hls.currentLevel >= 0 ? hls.currentLevel : (hls.nextAutoLevel >= 0 ? hls.nextAutoLevel : 0)
+                                const lower = Math.max(0, curr - 1)
+                                hls.currentLevel = lower
+                                hls.recoverMediaError()
+                                return
+                            }
                         }
                         reloadFresh()
                     })

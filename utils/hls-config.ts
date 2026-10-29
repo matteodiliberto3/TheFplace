@@ -41,6 +41,10 @@ export const HLS_CONFIG = {
     fragLoadingMaxRetry: 6,
     fragLoadingRetryDelay: 1000,
 
+    // Audio fidelity & sync optimizations
+    maxAudioFramesDrift: 1,
+    forceKeyFrameOnDiscontinuity: true,
+
     // Reduce console noise
     verbose: process.env.NODE_ENV === 'development',
 
@@ -64,7 +68,10 @@ export function getHlsConfigForDevice() {
             maxMaxBufferLength: 40,
             backBufferLength: 10,
             nudgeMaxRetry: 8,
-            maxBufferHole: 0.6,
+            maxBufferHole: 0.8,
+            maxAudioFramesDrift: 1,
+            forceKeyFrameOnDiscontinuity: true,
+            enableSoftwareAES: true,
         }
     }
 
@@ -140,4 +147,34 @@ export function cleanupHLS() {
         originalConsoleWarn = null
         originalConsoleError = null
     }
+}
+
+export function scoreAudioTrack(track: any): number {
+    if (!track) return -1
+    let score = 0
+    const bitrate = Number(track.bitrate) || 0
+    if (bitrate > 0) {
+        score += Math.round(bitrate / 1000)
+    }
+    let ch = 0
+    if (track.channels) {
+        const chStr = String(track.channels)
+        if (chStr.includes('5.1')) {
+            ch = 6
+        } else if (chStr.includes('7.1')) {
+            ch = 8
+        } else {
+            ch = parseInt(chStr, 10) || 2
+        }
+    }
+    if (ch >= 6) {
+        score += 1000
+    } else if (ch >= 2) {
+        score += 100
+    }
+    const text = (String(track.name || '') + ' ' + String(track.audioCodec || '')).toLowerCase()
+    if (text.includes('5.1') || text.includes('surround')) score += 500
+    if (text.includes('dolby') || text.includes('ac-3') || text.includes('ec-3') || text.includes('eac3')) score += 400
+    if (text.includes('hq') || text.includes('high') || text.includes('hd')) score += 200
+    return score
 }
