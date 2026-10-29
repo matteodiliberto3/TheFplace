@@ -89,12 +89,16 @@ export function isRetryablePlayerResolveStatus(status: number): boolean {
 export function isMissingVixsrcStreamError(error?: string): boolean {
     if (!error) return false
     const text = error.toLowerCase()
+    if (text.includes('api vixsrc non disponibile')) return false
     return (
         text.includes('senza embed') ||
         text.includes('playlist non trovata') ||
         text.includes("non trovata nell'embed") ||
         text.includes('tmdb id non valido') ||
-        text.includes('stagione o episodio')
+        text.includes('stagione o episodio') ||
+        text.includes('not found') ||
+        text.includes('non trovato') ||
+        /\b404\b/.test(text)
     )
 }
 

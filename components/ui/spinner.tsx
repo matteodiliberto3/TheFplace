@@ -16,7 +16,7 @@ export function Spinner({
             className={`rounded-full border-white/20 border-t-white animate-spin ${dim} ${className}`}
             role="status"
             aria-label="Caricamento"
-            style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+            style={{ willChange: 'transform' }}
         />
     )
 }

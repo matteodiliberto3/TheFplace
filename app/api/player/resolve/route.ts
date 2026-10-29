@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveVixsrcHls } from '@/services/vixsrc-hls.service'
+import { isConfirmedVixsrcMiss } from '@/lib/vixsrc-episode-status'
+import { isMissingVixsrcStreamError } from '@/lib/player-resolve'
 
 export const runtime = 'nodejs'
 export const preferredRegion = ['fra1', 'cdg1']
@@ -39,9 +41,10 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(
             {
                 success: false,
-                error: error instanceof Error ? error.message : 'Impossibile risolvere lo stream',
+                error: (error instanceof Error ? error.message : 'Impossibile risolvere lo stream'),
+                missing: isConfirmedVixsrcMiss(error instanceof Error ? error.message : '') || isMissingVixsrcStreamError(error instanceof Error ? error.message : ''),
             },
-            { status: 502 }
+            { status: (isConfirmedVixsrcMiss(error instanceof Error ? error.message : '') || isMissingVixsrcStreamError(error instanceof Error ? error.message : '')) ? 404 : 502 }
         )
     }
 }

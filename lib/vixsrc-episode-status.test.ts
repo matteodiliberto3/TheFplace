@@ -14,6 +14,7 @@ describe('classifyVixsrcEpisodeProbe', () => {
 describe('isConfirmedVixsrcMiss', () => {
     it('accetta solo un 403 visto da un transport', () => {
         expect(isConfirmedVixsrcMiss('direct 403')).toBe(true)
+        expect(isConfirmedVixsrcMiss('allorigins 404')).toBe(true)
         expect(isConfirmedVixsrcMiss('API VixSrc non disponibile (403)')).toBe(false)
         expect(isConfirmedVixsrcMiss('Risposta API VixSrc senza embed')).toBe(false)
     })
