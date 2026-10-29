@@ -764,6 +764,9 @@
     .spin-screen {
       position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none;
     }
+    .spin-screen.spin-hide {
+      display: none;
+    }
     .spin-screen .spinner {
       position: absolute; left: 50%; top: 50%; margin: -28px 0 0 -28px;
     }
@@ -3977,6 +3980,7 @@
       playerHud = null;
     }
     backHandler = function () {
+      try { sendProgress(false); } catch (e) {}
       clearHud();
       if (video && video._tvHls && video._tvHls.destroy) video._tvHls.destroy();
       go('/living/' + (type === 'tv' ? 'series/' : 'movie/') + id);
@@ -4101,9 +4105,11 @@
         pendingSeekTime = null;
         seekDebounceTimer = null;
         if (target !== null) {
+          showSpinner();
           try { video.currentTime = target; } catch (err) {}
-          if (video._tvHls && video._tvHls.startLoad) {
-            video._tvHls.startLoad(target);
+          if (video && video.paused) {
+            var pr = video.play();
+            if (pr && pr.catch) pr.catch(function () {});
           }
         }
         if (video && !video.paused) {
@@ -4239,6 +4245,7 @@
     if (type === 'tv') query += '&season=' + season + '&episode=' + episode;
 
     function showFail(msg) {
+      if (statusWrap) statusWrap.className = 'spin-screen';
       status.className = 'play-fail';
       status.innerHTML = '';
       status.appendChild(document.createTextNode(msg || 'Il film non parte.'));
@@ -4306,8 +4313,16 @@
         };
         collect(currentFid() || 'player-back');
       }, resumeAt);
+      function showSpinner() {
+        if (!statusWrap) return;
+        if (status && status.className === 'play-fail') return;
+        statusWrap.className = 'spin-screen';
+        if (status && status.className !== 'spinner') status.className = 'spinner';
+      }
       function hideStatus() {
-        if (statusWrap && statusWrap.parentNode) statusWrap.parentNode.removeChild(statusWrap);
+        if (statusWrap && status && status.className !== 'play-fail') {
+          statusWrap.className = 'spin-screen spin-hide';
+        }
         if (userHud) return;
         zone = 'watch';
         hideHud();
@@ -4315,6 +4330,30 @@
       }
       video.addEventListener('loadeddata', hideStatus);
       video.addEventListener('playing', hideStatus);
+      video.addEventListener('canplay', hideStatus);
+      video.addEventListener('waiting', showSpinner);
+      var seekStallTimer = null;
+      function clearSeekStall() {
+        if (seekStallTimer) { window.clearTimeout(seekStallTimer); seekStallTimer = null; }
+      }
+      video.addEventListener('seeking', function () {
+        showSpinner();
+        clearSeekStall();
+        seekStallTimer = window.setTimeout(function () {
+          if (video && video.seeking && video._tvHls) {
+            console.warn('[TV Player] Seek stall detected (>5s), recovering');
+            try {
+              video.currentTime = Math.max(0, video.currentTime + 0.3);
+              video._tvHls.recoverMediaError();
+            } catch (e) {}
+          }
+        }, 5000);
+      });
+      video.addEventListener('seeked', function () {
+        clearSeekStall();
+        hideStatus();
+        syncBar();
+      });
       var nativeErrorsCount = 0;
       video.addEventListener('error', function () {
         if (video._tvHls) {
