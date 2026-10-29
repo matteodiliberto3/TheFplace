@@ -1147,6 +1147,7 @@
       text.indexOf('stagione o episodio') >= 0;
   }
 
+  var relayCircuitBroken = false;
   function resolvePlayback(query, done) {
     function fromOrigin(attempt) {
       getJson('/api/player/resolve?' + query, function (json) {
@@ -1155,24 +1156,20 @@
         setTimeout(function () { fromOrigin(attempt + 1); }, 600 * attempt);
       }, 45000);
     }
+    if (relayCircuitBroken) {
+      fromOrigin(1);
+      return;
+    }
     getJson('/api/player/relay', function (cfg) {
       var direct = relayResolveUrl(cfg && cfg.url ? String(cfg.url) : '', query);
-      var tries = 0;
-      function fromRelay() {
-        tries += 1;
-        getJsonPlain(direct, function (json) {
-          if (json && json.data && json.data.master) { done(json); return; }
-          if (json && streamIsMissing(json.error)) { done(json); return; }
-          if (tries < 2) {
-            setTimeout(fromRelay, 600 * tries);
-            return;
-          }
-          fromOrigin(1);
-        }, 35000);
-      }
       if (!direct) { fromOrigin(1); return; }
-      fromRelay();
-    }, 8000);
+      getJsonPlain(direct, function (json) {
+        if (json && json.data && json.data.master) { done(json); return; }
+        if (json && streamIsMissing(json.error)) { done(json); return; }
+        relayCircuitBroken = true;
+        fromOrigin(1);
+      }, 4500);
+    }, 4000);
   }
 
   function sendJson(method, url, body, done, waitMs) {
