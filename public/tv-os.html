@@ -1172,18 +1172,25 @@
     }, 8000);
   }
 
-  function sendJson(method, url, body, done) {
+  function sendJson(method, url, body, done, waitMs) {
     if (!window.fetch) { done(null); return; }
+    var finished = false;
+    function finish(data) {
+      if (finished) return;
+      finished = true;
+      done(data);
+    }
     fetch(url, {
       method: method,
       credentials: 'same-origin',
       headers: deviceHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body)
-    }).then(function (res) { return res.json(); }).then(done).catch(function () { done(null); });
+    }).then(function (res) { return res.json(); }).then(finish).catch(function () { finish(null); });
+    setTimeout(function () { finish(null); }, waitMs || 8000);
   }
 
-  function postJson(url, body, done) {
-    sendJson('POST', url, body, done);
+  function postJson(url, body, done, waitMs) {
+    sendJson('POST', url, body, done, waitMs || 8000);
   }
 
   function postJsonWait(url, body, done, waitMs) {
@@ -1891,12 +1898,29 @@
     });
   }
 
+  var bootWatchdogTimer = null;
+  function clearBootWatchdog() {
+    if (bootWatchdogTimer) { window.clearTimeout(bootWatchdogTimer); bootWatchdogTimer = null; }
+  }
+
   function renderBoot() {
-    backHandler = function () {};
+    clearBootWatchdog();
+    backHandler = function () {
+      clearBootWatchdog();
+      gateView = 'pick';
+      renderGate();
+    };
     root.innerHTML = '';
     var page = el('div', 'boot');
     page.appendChild(el('div', 'boot-mark', 'H'));
     root.appendChild(page);
+    bootWatchdogTimer = window.setTimeout(function () {
+      if (document.querySelector('.boot')) {
+        console.warn('[TV Boot] Watchdog triggered: ripristino controllo su Gate');
+        gateView = 'pick';
+        renderGate();
+      }
+    }, 10000);
   }
 
   function hiddenProfileIds() {
@@ -2422,6 +2446,7 @@
   }
 
   function renderGate() {
+    clearBootWatchdog();
     backHandler = function () {};
     if (!householdReady && gateView === 'pick') {
       renderBoot();
@@ -2821,8 +2846,8 @@
         }, 45000);
       }, 20000);
     }
-    if (pid && pid !== 'local') {
-      postJson('/api/household/switch', { profileId: pid }, function () { pullHistory(); });
+    if (pid && pid !== 'local' && household.activeProfileId !== pid) {
+      postJson('/api/household/switch', { profileId: pid }, function () { pullHistory(); }, 8000);
     } else {
       pullHistory();
     }
@@ -3059,6 +3084,7 @@
   }
 
   function revealBrowse(kind, data) {
+    clearBootWatchdog();
     warmupUrls(firstWindowUrls(kind, data), function () {
       if (pathNow().indexOf(browsePathOf(kind)) !== 0) return;
       paintBrowse(kind, data);
@@ -3149,8 +3175,8 @@
         paintBrowse(kind, data);
       }, 20000);
     }
-    if (pid && pid !== 'local') {
-      postJson('/api/household/switch', { profileId: pid }, function () { pull(); });
+    if (pid && pid !== 'local' && household.activeProfileId !== pid) {
+      postJson('/api/household/switch', { profileId: pid }, function () { pull(); }, 8000);
     } else {
       pull();
     }
@@ -3823,9 +3849,9 @@
         levelLoadingTimeOut: 45000,
         subtitleLoadingTimeOut: 45000,
         subtitleLoadingMaxRetry: 4,
-        maxBufferLength: 20, // 20s forward: evita saturazione RAM SourceBuffer su Smart TV
-        maxMaxBufferLength: 40, // Massimo 40s in memoria
-        backBufferLength: 10, // Libera memoria buffer dai segmenti passati
+        maxBufferLength: 30, // 30s forward per stabilità di decodifica
+        maxMaxBufferLength: 60, // Massimo 60s in memoria
+        backBufferLength: 15, // Libera memoria buffer dai segmenti passati
         maxBufferHole: 0.8, // Tolleranza ai micro-buchi tra chunk audio/video
         highBufferWatchdogPeriod: 2,
         nudgeOffset: 0.2,
@@ -3903,8 +3929,12 @@
             return;
           }
           if (mediaErrorInRow === 2) {
-            console.warn('[TV Player] Media error repeated (tier 2): swapping audio codec and recovering');
-            try { hls.swapAudioCodec(); } catch (e) {}
+            console.warn('[TV Player] Media error repeated (tier 2): nudging stream and swapping audio codec recovery');
+            try {
+              var ct2 = video.currentTime || 0;
+              if (ct2 > 8) video.currentTime = Math.max(0, ct2 - 6);
+              hls.swapAudioCodec();
+            } catch (e) {}
             hls.recoverMediaError();
             return;
           }
@@ -4285,12 +4315,15 @@
       }
       video.addEventListener('loadeddata', hideStatus);
       video.addEventListener('playing', hideStatus);
+      var nativeErrorsCount = 0;
       video.addEventListener('error', function () {
         if (video._tvHls) {
-          console.warn('[TV Player] Native video error intercepted, delegating to Hls.js recovery:', video.error);
-          return;
+          if (++nativeErrorsCount <= 3) {
+            try { video._tvHls.recoverMediaError(); } catch (e) {}
+            return;
+          }
         }
-        showFail('Il film non parte. Torna indietro e riprova.');
+        showFail('Errore riproduzione stream. Torna indietro e riprova.');
       });
     }
 
