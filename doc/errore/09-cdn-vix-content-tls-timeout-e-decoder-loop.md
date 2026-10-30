@@ -35,3 +35,11 @@ Riproducendo serie TV o film sull'app LG webOS (es. *Crystal Lake* S1 E3, TMDB `
 4. **Nudge Forward e Buffer Protetti**:
    - `maxBufferLength: 20`, `maxMaxBufferLength: 40`, `backBufferLength: 10`, `maxBufferHole: 0.8`.
    - Recupero errori tier 2 e listener nativo video ora avanzano la testina di +1.0s / +1.5s per oltrepassare il pacchetto corrotto senza bloccare la riproduzione.
+5. **Preservazione CDN in `tv-os.html` (Client Side)**:
+   - In `public/tv-os.html`, `normalizeCdn` sovrascriveva incondizionatamente gli host edge su `vix-content.net`. È stata corretta per riscrivere solo l'estensione `.ts`, lasciando intatto l'edge Cloudflare (`frozenlagoon85.boats`, ecc.).
+   - Rimosso il seek manuale prematuro a `MANIFEST_PARSED`, lasciando ad Hls.js (`startPosition`) la gestione del riempimento del buffer prima di avviare il play.
+
+## Verifica Finale
+- Test eseguito in-vivo su TV LG (webOS 4.x, Chromium 68):
+  - *Crystal Lake* S1 E3 caricato con successo (`readyState: 4`, `paused: false`, `fail: null`).
+  - Test di seek al secondo 1095s: ha oltrepassato il frame corrotto a 1101s senza errori né stalli, proseguendo fino a 1111s+ continuativamente.
