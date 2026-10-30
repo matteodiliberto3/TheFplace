@@ -33,7 +33,14 @@ export function interpretHomeRelayResponse(status: number, body: string): HomeRe
         }
 
         const error = typeof payload.error === 'string' ? payload.error.toLowerCase() : ''
-        if (error.includes('occupato')) {
+        if (
+            error.includes('occupato') ||
+            error.includes('404') ||
+            error.includes('non trovata') ||
+            error.includes('non trovato') ||
+            error.includes('not found') ||
+            status === 404
+        ) {
             return { ok: false, coolDown: false }
         }
         const coolDown =

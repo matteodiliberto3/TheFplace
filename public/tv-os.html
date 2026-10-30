@@ -1147,7 +1147,7 @@
       text.indexOf('stagione o episodio') >= 0;
   }
 
-  var relayCircuitBroken = false;
+  var relayCircuitBrokenUntil = 0;
   function resolvePlayback(query, done) {
     function fromOrigin(attempt) {
       getJson('/api/player/resolve?' + query, function (json) {
@@ -1156,7 +1156,7 @@
         setTimeout(function () { fromOrigin(attempt + 1); }, 600 * attempt);
       }, 45000);
     }
-    if (relayCircuitBroken) {
+    if (Date.now() < relayCircuitBrokenUntil) {
       fromOrigin(1);
       return;
     }
@@ -1166,7 +1166,7 @@
       getJsonPlain(direct, function (json) {
         if (json && json.data && json.data.master) { done(json); return; }
         if (json && streamIsMissing(json.error)) { done(json); return; }
-        relayCircuitBroken = true;
+        relayCircuitBrokenUntil = Date.now() + 30000;
         fromOrigin(1);
       }, 4500);
     }, 4000);

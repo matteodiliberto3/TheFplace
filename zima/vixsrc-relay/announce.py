@@ -9,28 +9,38 @@ import urllib.request
 
 URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 TOKEN = os.environ.get("RELAY_TOKEN", "")
-ANNOUNCE_URL = os.environ.get("ANNOUNCE_URL", "https://the-fplace.vercel.app/api/player/relay")
+ANNOUNCE_URLS = [
+    u.strip()
+    for u in os.environ.get(
+        "ANNOUNCE_URLS",
+        "https://the-fplace.vercel.app/api/player/relay,https://the-hustle-place.vercel.app/api/player/relay",
+    ).split(",")
+    if u.strip()
+]
 CONTAINER = os.environ.get("TUNNEL_CONTAINER", "hustle-vixsrc-tunnel")
-HEARTBEAT_INTERVAL = 60  # Ri-annuncia ogni 60 secondi anche se l'URL non è cambiato per aggiornare updated_at
+HEARTBEAT_INTERVAL = 60
 LAST_ANNOUNCED_AT = 0.0
 
 
 def announce(url: str) -> bool:
     global LAST_ANNOUNCED_AT
-    request = urllib.request.Request(
-        ANNOUNCE_URL,
-        data=json.dumps({"url": url}).encode(),
-        headers={"Content-Type": "application/json", "x-relay-token": TOKEN},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            LAST_ANNOUNCED_AT = time.time()
-            print("announced", url, response.status, flush=True)
-            return True
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as error:
-        print("announce fail", error, flush=True)
-        return False
+    success = False
+    for target in ANNOUNCE_URLS:
+        request = urllib.request.Request(
+            target,
+            data=json.dumps({"url": url}).encode(),
+            headers={"Content-Type": "application/json", "x-relay-token": TOKEN},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                print(f"announced {url} -> {target} : {response.status}", flush=True)
+                success = True
+        except Exception as error:
+            print(f"announce fail -> {target} : {error}", flush=True)
+    if success:
+        LAST_ANNOUNCED_AT = time.time()
+    return success
 
 
 def scan(text: str, last: str | None) -> str | None:

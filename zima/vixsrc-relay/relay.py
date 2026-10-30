@@ -312,7 +312,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"success": True, "data": data}).encode(), "application/json")
             except Exception as error:
                 message = str(error)
-                status = 503 if "occupato" in message else 502
+                if "404" in message or "non trovata" in message or "non trovato" in message:
+                    status = 404
+                elif "occupato" in message:
+                    status = 503
+                else:
+                    status = 502
                 self._send(status, json.dumps({"success": False, "error": message}).encode(), "application/json")
             return
         if parsed.path != "/fetch":

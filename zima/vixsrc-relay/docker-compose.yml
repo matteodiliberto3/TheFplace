@@ -32,9 +32,9 @@ services:
     restart: unless-stopped
     environment:
       RELAY_TOKEN: ${RELAY_TOKEN}
-      ANNOUNCE_URL: https://the-fplace.vercel.app/api/player/relay
       TUNNEL_CONTAINER: hustle-vixsrc-tunnel
     volumes:
+      - ./announce.py:/app/announce.py:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - tunnel
