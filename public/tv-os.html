@@ -3700,9 +3700,7 @@
 
   function normalizeCdn(text) {
     if (!text) return '';
-    return text
-      .replace(/https:\/\/(sc-[a-z0-9]+-\d+)\.[^/ \t\r\n'"]+/gi, 'https://$1.vix-content.net')
-      .replace(/\.(html|m4s)(\?|$)/gi, '.ts$2');
+    return text.replace(/\.(html|m4s)(\?|$)/gi, '.ts$2');
   }
 
   function makePlaylistUrl(master, parts) {
