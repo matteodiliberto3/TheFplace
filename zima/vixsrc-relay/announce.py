@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -20,6 +21,8 @@ ANNOUNCE_URLS = [
 CONTAINER = os.environ.get("TUNNEL_CONTAINER", "hustle-vixsrc-tunnel")
 HEARTBEAT_INTERVAL = 60
 LAST_ANNOUNCED_AT = 0.0
+CURRENT_URL: str | None = None
+URL_LOCK = threading.Lock()
 
 
 def announce(url: str) -> bool:
@@ -43,15 +46,31 @@ def announce(url: str) -> bool:
     return success
 
 
+def heartbeat_worker() -> None:
+    while True:
+        try:
+            with URL_LOCK:
+                url = CURRENT_URL
+            if url:
+                now = time.time()
+                if now - LAST_ANNOUNCED_AT >= HEARTBEAT_INTERVAL:
+                    announce(url)
+        except Exception as error:
+            print("heartbeat worker error:", error, flush=True)
+        time.sleep(5)
+
+
 def scan(text: str, last: str | None) -> str | None:
+    global CURRENT_URL
     match = URL_RE.search(text)
     if not match:
         return last
     url = match.group(0)
-    now = time.time()
-    if url != last or (now - LAST_ANNOUNCED_AT > HEARTBEAT_INTERVAL):
-        if announce(url):
-            return url
+    with URL_LOCK:
+        CURRENT_URL = url
+    if url != last:
+        announce(url)
+        return url
     return last if last else url
 
 
@@ -67,6 +86,11 @@ def logs(follow: bool, since: str | None = None) -> subprocess.Popen:
 def main() -> None:
     if not TOKEN:
         raise SystemExit("RELAY_TOKEN mancante")
+    
+    # Avvia il worker heartbeat asincrono disaccoppiato dai log
+    thread = threading.Thread(target=heartbeat_worker, daemon=True)
+    thread.start()
+
     last = None
     bootstrap = logs(False)
     out, _ = bootstrap.communicate(timeout=20)
@@ -77,12 +101,8 @@ def main() -> None:
             assert proc.stdout
             for line in proc.stdout:
                 last = scan(line, last)
-                if last and (time.time() - LAST_ANNOUNCED_AT > HEARTBEAT_INTERVAL):
-                    announce(last)
         except Exception as error:
             print("watch error", error, flush=True)
-        if last and (time.time() - LAST_ANNOUNCED_AT > HEARTBEAT_INTERVAL):
-            announce(last)
         time.sleep(4)
 
 

@@ -35,7 +35,7 @@ export async function getAnnouncedRelayUrl(): Promise<string | null> {
     if (sql) {
         await ensureTable(sql)
         const rows = await sql<{ url: string }[]>`
-            select url from vixsrc_home_relay where id = 1 and updated_at > (now() - interval '15 minutes')
+            select url from vixsrc_home_relay where id = 1 and updated_at > (now() - interval '4 hours')
         `
         const url = rows[0]?.url?.replace(/\/$/, '') ?? ''
         if (isAllowedRelayPublicUrl(url)) return url
@@ -50,7 +50,7 @@ export async function getHomeRelayConfig(): Promise<HomeRelayConfig | null> {
     if (sql) {
         await ensureTable(sql)
         const rows = await sql<{ url: string; token: string }[]>`
-            select url, token from vixsrc_home_relay where id = 1 and updated_at > (now() - interval '15 minutes')
+            select url, token from vixsrc_home_relay where id = 1 and updated_at > (now() - interval '4 hours')
         `
         const row = rows[0]
         if (row?.url && row?.token && isAllowedRelayPublicUrl(row.url.replace(/\/$/, ''))) {

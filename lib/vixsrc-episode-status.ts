@@ -10,5 +10,5 @@ export function classifyVixsrcEpisodeProbe(status: number, body: string): Episod
 }
 
 export function isConfirmedVixsrcMiss(error: string): boolean {
-    return /\b(?:direct|allorigins|jina|home) (?:403|404)\b/.test(error)
+    return /\b(?:direct|allorigins|jina|home) 404\b/.test(error)
 }
