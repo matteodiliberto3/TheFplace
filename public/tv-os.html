@@ -1127,7 +1127,7 @@
     setTimeout(function () { finish(null); }, waitMs || 35000);
   }
 
-  function relayResolveUrl(base, query) {
+  function relayResolveUrl(base, query, token) {
     var host = '';
     try {
       var parsed = new URL(base);
@@ -1135,7 +1135,8 @@
       host = parsed.hostname || '';
     } catch (e) { return ''; }
     if (!/(^|\.)trycloudflare\.com$/i.test(host) && !/(^|\.)cfargotunnel\.com$/i.test(host)) return '';
-    return base.replace(/\/$/, '') + '/resolve?' + query;
+    var auth = token ? '&token=' + encodeURIComponent(token) : '';
+    return base.replace(/\/$/, '') + '/resolve?' + query + auth;
   }
 
   function streamIsMissing(error) {
@@ -1161,7 +1162,11 @@
       return;
     }
     getJson('/api/player/relay', function (cfg) {
-      var direct = relayResolveUrl(cfg && cfg.url ? String(cfg.url) : '', query);
+      var direct = relayResolveUrl(
+        cfg && cfg.url ? String(cfg.url) : '',
+        query,
+        cfg && cfg.token ? String(cfg.token) : ''
+      );
       if (!direct) { fromOrigin(1); return; }
       getJsonPlain(direct, function (json) {
         if (json && json.data && json.data.master) { done(json); return; }
@@ -3849,10 +3854,10 @@
         levelLoadingTimeOut: 45000,
         subtitleLoadingTimeOut: 45000,
         subtitleLoadingMaxRetry: 4,
-        maxBufferLength: 30, // 30s forward per stabilità di decodifica
-        maxMaxBufferLength: 60, // Massimo 60s in memoria
-        backBufferLength: 15, // Libera memoria buffer dai segmenti passati
-        maxBufferHole: 1.2, // Tolleranza ai micro-buchi tra chunk audio/video
+        maxBufferLength: 20, // 20s forward per stabilità memoria decoder su webOS 4.x
+        maxMaxBufferLength: 40, // Massimo 40s in memoria
+        backBufferLength: 10, // Libera memoria buffer dai segmenti passati
+        maxBufferHole: 0.8, // Tolleranza ai micro-buchi tra chunk audio/video
         highBufferWatchdogPeriod: 2,
         nudgeOffset: 0.2,
         nudgeMaxRetry: 10,
@@ -3932,10 +3937,10 @@
             return;
           }
           if (mediaErrorInRow === 2) {
-            console.warn('[TV Player] Media error repeated (tier 2): nudging stream and swapping audio codec recovery');
+            console.warn('[TV Player] Media error repeated (tier 2): nudging stream forward and swapping audio codec recovery');
             try {
               var ct2 = video.currentTime || 0;
-              if (ct2 > 8) video.currentTime = Math.max(0, ct2 - 6);
+              video.currentTime = ct2 + 1.5;
               hls.swapAudioCodec();
             } catch (e) {}
             hls.recoverMediaError();
@@ -4040,6 +4045,22 @@
     var barTimer = null;
     var zone = 'hud';
     var userHud = false;
+
+    function showSpinner() {
+      if (!statusWrap) return;
+      if (status && status.className === 'play-fail') return;
+      statusWrap.className = 'spin-screen';
+      if (status && status.className !== 'spinner') status.className = 'spinner';
+    }
+    function hideStatus() {
+      if (statusWrap && status && status.className !== 'play-fail') {
+        statusWrap.className = 'spin-screen spin-hide';
+      }
+      if (userHud) return;
+      zone = 'watch';
+      hideHud();
+      showBar();
+    }
     function syncBar() {
       if (pendingSeekTime !== null || (video && video.seeking)) return;
       var d = video.duration;
@@ -4289,107 +4310,17 @@
         failed = true;
         if (source && source.url && source.url.indexOf('blob:') === 0) {
           showFail('Errore riproduzione stream. Torna indietro e riprova.');
-          return;
-        }
-        if (video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl')) {
-          if (video._tvHls && video._tvHls.destroy) video._tvHls.destroy();
-          video.src = source.url;
-          playWhenReady(video);
-          return;
-        }
-        showFail('Errore caricamento stream. Torna indietro e riprova.');
-      }
-      attachStream(video, source.url, fallbackNative, function (hls, levels, best, lockLevel) {
-        if (!levels || !levels.length) return;
-        var order = [-1]; // -1 rappresenta "Auto"
-        var i;
-        var indexedLevels = [];
-        for (i = 0; i < levels.length; i++) indexedLevels.push(i);
-        indexedLevels.sort(function (a, b) {
-          var dh = (levels[b].height || 0) - (levels[a].height || 0);
-          if (dh) return dh;
-          return (levels[b].bitrate || 0) - (levels[a].bitrate || 0);
-        });
-        for (i = 0; i < indexedLevels.length; i++) order.push(indexedLevels[i]);
-        var qPos = 0; // Inizia sempre in modalità Auto
-        function setQualityLabel(idx) {
-          qualityBtn.innerHTML = '';
-          if (idx === -1) {
-            var activeLvl = (hls.currentLevel >= 0 && levels[hls.currentLevel]) ? levels[hls.currentLevel] : null;
-            var activeText = activeLvl && activeLvl.height ? ' (' + activeLvl.height + 'p)' : '';
-            qualityBtn.appendChild(document.createTextNode('Auto' + activeText));
-          } else {
-            qualityBtn.appendChild(document.createTextNode(levelLabel(levels[idx])));
-          }
-        }
-        qualityBtn.style.display = 'inline-block';
-        setQualityLabel(-1);
-        if (Hls.Events && Hls.Events.LEVEL_SWITCHED) {
-          hls.on(Hls.Events.LEVEL_SWITCHED, function () {
-            if (order[qPos] === -1) setQualityLabel(-1);
-          });
-        }
-        qualityCycle = function () {
-          qPos = (qPos + 1) % order.length;
-          lockLevel(order[qPos]);
-          setQualityLabel(order[qPos]);
-          if (playerHud) playerHud.show();
-        };
-        collect(currentFid() || 'player-back');
-      }, resumeAt);
-      function showSpinner() {
-        if (!statusWrap) return;
-        if (status && status.className === 'play-fail') return;
-        statusWrap.className = 'spin-screen';
-        if (status && status.className !== 'spinner') status.className = 'spinner';
-      }
-      function hideStatus() {
-        if (statusWrap && status && status.className !== 'play-fail') {
-          statusWrap.className = 'spin-screen spin-hide';
-        }
-        if (userHud) return;
-        zone = 'watch';
-        hideHud();
-        showBar();
-      }
-      video.addEventListener('loadeddata', hideStatus);
-      video.addEventListener('playing', hideStatus);
-      video.addEventListener('canplay', hideStatus);
-      video.addEventListener('waiting', showSpinner);
-      var seekStallTimer = null;
-      function clearSeekStall() {
-        if (seekStallTimer) { window.clearTimeout(seekStallTimer); seekStallTimer = null; }
-      }
-      video.addEventListener('seeking', function () {
-        showSpinner();
-        clearSeekStall();
-        seekStallTimer = window.setTimeout(function () {
-          if (video && video.seeking && video._tvHls) {
-            console.warn('[TV Player] Seek stall detected (>5s), recovering to target:', lastSeekTarget);
-            try {
-
-              if (lastSeekTarget !== null && Math.abs((video.currentTime || 0) - lastSeekTarget) > 2) {
-                video.currentTime = lastSeekTarget;
-              }
-              if (video._tvHls.startLoad) {
-                video._tvHls.startLoad(lastSeekTarget !== null ? lastSeekTarget : -1);
-              }
-              video.currentTime = Math.max(0, (video.currentTime || 0) + 0.2);
-            } catch (e) {}
-          }
-        }, 5000);
-      });
-      video.addEventListener('seeked', function () {
-        clearSeekStall();
-        lastSeekTarget = null;
-        hideStatus();
-        syncBar();
-      });
-      var nativeErrorsCount = 0;
-      video.addEventListener('error', function () {
+  video.addEventListener('error', function () {
         if (video._tvHls) {
           if (++nativeErrorsCount <= 3) {
-            try { video._tvHls.recoverMediaError(); } catch (e) {}
+            try { if (video.currentTime) video.currentTime += 1; video._tvHls.recoverMediaError(); } catch (e) {}
+            return;
+          }
+        }
+        showFail('Errore riproduzione stream. Torna indietro e riprova.');video.addEventListener('error', function () {
+        if (video._tvHls) {
+          if (++nativeErrorsCount <= 3) {
+            try { if (video.currentTime > 0) video.currentTime += 1.0; video._tvHls.recoverMediaError(); } catch (e) {}
             return;
           }
         }

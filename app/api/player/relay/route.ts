@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAnnouncedRelayUrl, saveHomeRelayUrl } from '@/lib/db/vixsrc-relay'
+import { getHomeRelayConfig, saveHomeRelayUrl } from '@/lib/db/vixsrc-relay'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
-    const url = await getAnnouncedRelayUrl()
+    const config = await getHomeRelayConfig()
     return NextResponse.json(
-        { success: true, url },
+        { success: true, url: config?.url ?? null, token: config?.token ?? null },
         { headers: { 'Cache-Control': 'private, no-store' } }
     )
 }

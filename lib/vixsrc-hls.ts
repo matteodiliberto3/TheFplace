@@ -176,9 +176,7 @@ export function resolvePlaylistRef(ref: string, sourceUrl: string): string | nul
 export function normalizeVixsrcCdnUrl(rawUrl: string): string {
     try {
         const url = new URL(rawUrl)
-        const match = url.hostname.match(/^(sc-[a-z0-9]+-\d+)\.[a-z0-9.-]+$/i)
-        if (match) {
-            url.hostname = `${match[1]}.vix-content.net`
+        if (isVixsrcCdnHost(url.hostname)) {
             url.pathname = url.pathname.replace(/\.(html|m4s)$/i, '.ts')
             return url.toString()
         }
@@ -190,9 +188,7 @@ export function normalizeVixsrcCdnUrl(rawUrl: string): string {
 
 export function normalizeVixsrcCdnInManifest(manifestText: string): string {
     if (!manifestText) return ''
-    return manifestText
-        .replace(/https:\/\/(sc-[a-z0-9]+-\d+)\.[a-z0-9.-]+/gi, 'https://$1.vix-content.net')
-        .replace(/\.(html|m4s)(\?|$)/gi, '.ts$2')
+    return manifestText.replace(/\.(html|m4s)(\?|$)/gi, '.ts$2')
 }
 
 function rewriteHlsRef(absolute: string, proxyPrefix: string): string {

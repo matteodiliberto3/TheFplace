@@ -154,13 +154,9 @@ def normalize_cdn(raw: str) -> str:
     try:
         parsed = urlparse(raw)
         host = parsed.hostname or ""
-        match = re.match(r"^(sc-[a-z0-9]+-\d+)\.[a-z0-9.-]+$", host, re.I)
-        if match:
-            new_host = f"{match.group(1)}.vix-content.net"
+        if EDGE_CDN_HOST.match(host) or host.endswith("vix-content.net"):
             new_path = re.sub(r"\.(html|m4s)$", ".ts", parsed.path, flags=re.I)
-            port = f":{parsed.port}" if parsed.port else ""
-            netloc = f"{new_host}{port}"
-            return urlunparse(parsed._replace(netloc=netloc, path=new_path))
+            return urlunparse(parsed._replace(path=new_path))
         return raw
     except Exception:
         return raw
@@ -296,10 +292,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, payload, "application/json")
             return
         if parsed.path == "/resolve":
-            if not self._allowed_resolve():
+            qs = parse_qs(parsed.query)
+            if not self._allowed_resolve(qs):
                 self._send(401, b'{"success":false,"error":"unauthorized"}', "application/json")
                 return
-            qs = parse_qs(parsed.query)
             try:
                 tmdb_id = int((qs.get("tmdbId") or [""])[0])
                 kind = "tv" if (qs.get("type") or ["movie"])[0] == "tv" else "movie"
@@ -336,9 +332,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} {format % args}", flush=True)
 
-    def _allowed_resolve(self) -> bool:
-        if TOKEN and self.headers.get("x-relay-token") == TOKEN:
-            return True
+    def _allowed_resolve(self, qs: dict | None = None) -> bool:
+        if TOKEN:
+            if self.headers.get("x-relay-token") == TOKEN:
+                return True
+            if qs and (qs.get("token") or [""])[0] == TOKEN:
+                return True
         origin = self.headers.get("Origin") or ""
         referer = self.headers.get("Referer") or ""
         if origin in ALLOWED_ORIGINS:
@@ -350,7 +349,11 @@ class Handler(BaseHTTPRequestHandler):
         if origin in ALLOWED_ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
-            self.send_header("Access-Control-Allow-Headers", "content-type")
+            self.send_header("Access-Control-Allow-Headers", "content-type, x-relay-token")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        elif origin:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "content-type, x-relay-token")
             self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:

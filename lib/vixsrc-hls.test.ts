@@ -155,28 +155,28 @@ describe('rewriteM3u8', () => {
         expect(rewritten).toContain(
             `/api/player/hls?u=${encodeURIComponent('https://vixsrc.to/playlist/1?type=video')}`
         )
-        expect(rewritten).toContain('https://sc-u15-01.vix-content.net/hls/a.ts')
+        expect(rewritten).toContain('https://sc-u15-01.blueorca88.xyz/hls/a.ts')
         expect(rewritten).not.toContain(
             `/api/player/hls?u=${encodeURIComponent('https://sc-u15-01.vix-content.net/hls/a.ts')}`
         )
     })
 
-    it('normalizza i segmenti degli edge ruotati su vix-content.net senza passarli dal proxy', () => {
+    it('mantiene i segmenti sugli edge ruotati preservando l\'host Cloudflare senza passare dal proxy', () => {
         const source = 'https://vixsrc.to/playlist/1'
         const body = ['#EXTM3U', '#EXTINF:4,', 'https://sc-u15-01.blueorca88.xyz/hls/a.m4s'].join('\n')
         const rewritten = rewriteM3u8(body, source, '/api/player/hls?u=')
-        expect(rewritten).toContain('https://sc-u15-01.vix-content.net/hls/a.ts')
+        expect(rewritten).toContain('https://sc-u15-01.blueorca88.xyz/hls/a.ts')
         expect(rewritten).not.toContain('/api/player/hls')
     })
 })
 
 describe('normalizeVixsrcCdnUrl', () => {
-    it('riscrive qualsiasi TLD ruotato verso vix-content.net e ripristina estensione .ts', () => {
+    it('preserva l\'host Cloudflare del TLD ruotato e ripristina estensione .ts', () => {
         expect(normalizeVixsrcCdnUrl('https://sc-u14-01.nobletiger60.boats/hls/video/0000.html?token=abc')).toBe(
-            'https://sc-u14-01.vix-content.net/hls/video/0000.ts?token=abc'
+            'https://sc-u14-01.nobletiger60.boats/hls/video/0000.ts?token=abc'
         )
         expect(normalizeVixsrcCdnUrl('https://sc-u11-01.bravecastle98.boats/hls/audio/0001.m4s')).toBe(
-            'https://sc-u11-01.vix-content.net/hls/audio/0001.ts'
+            'https://sc-u11-01.bravecastle98.boats/hls/audio/0001.ts'
         )
         expect(normalizeVixsrcCdnUrl('https://sc-u14-01.vix-content.net/hls/video/0000.ts')).toBe(
             'https://sc-u14-01.vix-content.net/hls/video/0000.ts'
@@ -186,7 +186,7 @@ describe('normalizeVixsrcCdnUrl', () => {
     it('normalizza intere playlist m3u8 con normalizeVixsrcCdnInManifest', () => {
         const input = '#EXTINF:4,\nhttps://sc-u11-01.bravecastle98.boats/hls/audio/0000.html?token=x'
         const output = normalizeVixsrcCdnInManifest(input)
-        expect(output).toBe('#EXTINF:4,\nhttps://sc-u11-01.vix-content.net/hls/audio/0000.ts?token=x')
+        expect(output).toBe('#EXTINF:4,\nhttps://sc-u11-01.bravecastle98.boats/hls/audio/0000.ts?token=x')
     })
 })
 
