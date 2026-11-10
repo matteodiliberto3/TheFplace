@@ -56,6 +56,8 @@
         }
       } catch (e) {}
 
+      var fallbackTimer = null;
+
       function ready() {
         if (shown) return;
         shown = true;
@@ -75,15 +77,8 @@
         if (event.data && event.data.type === 'thp-ready') ready();
       });
 
-      var fallbackTimer = null;
-
-      function loadCurrentDomain() {
-        if (!frame) return;
-        var currentHost = DOMAINS[activeIdx] || DOMAINS[0];
-        frame.src = currentHost + '/living?boot=' + new Date().getTime();
-
-        // Se entro 7 secondi il dominio non risponde (quota Vercel esaurita o errore 503),
-        // attiva il fallback sull'altro host
+      function startFallbackTimer() {
+        if (fallbackTimer) clearTimeout(fallbackTimer);
         fallbackTimer = setTimeout(function () {
           if (!shown) {
             activeIdx = (activeIdx === 0) ? 1 : 0;
@@ -91,20 +86,67 @@
               window.localStorage.setItem('thp_domain_idx', String(activeIdx));
             } catch (e) {}
             var altHost = DOMAINS[activeIdx];
-            frame.src = altHost + '/living?boot=' + new Date().getTime();
+            if (frame) frame.src = altHost + '/living?boot=' + new Date().getTime();
           }
-        }, 7000);
+        }, 6000);
+      }
+
+      // Controllo preventivo rapido del dominio all'avvio
+      function probeAndBoot() {
+        if (!frame) return;
+        var preferredHost = DOMAINS[activeIdx] || DOMAINS[0];
+        var controller = window.AbortController ? new AbortController() : null;
+        var probeTimeout = null;
+        if (controller) {
+          probeTimeout = setTimeout(function () { controller.abort(); }, 1400);
+        }
+
+        var opts = { method: 'GET', mode: 'cors' };
+        if (controller) opts.signal = controller.signal;
+
+        var booted = false;
+        function proceedWith(hostIndex) {
+          if (booted) return;
+          booted = true;
+          if (probeTimeout) clearTimeout(probeTimeout);
+          activeIdx = hostIndex;
+          var host = DOMAINS[activeIdx];
+          frame.src = host + '/living?boot=' + new Date().getTime();
+          startFallbackTimer();
+        }
+
+        // Tenta un preflight HEAD/GET rapido sul dominio preferito
+        if (window.fetch) {
+          fetch(preferredHost + '/api/health', opts)
+            .then(function (res) {
+              if (res && res.status < 400) {
+                proceedWith(activeIdx);
+              } else {
+                // Dominio preferito degradato/sospeso -> passa subito all'alternativo
+                proceedWith((activeIdx === 0) ? 1 : 0);
+              }
+            })
+            .catch(function () {
+              // Timeout o errore di rete sul preferito -> usa alternativo preventivamente
+              proceedWith((activeIdx === 0) ? 1 : 0);
+            });
+          
+          // Safety timeout in caso di blocco fetch: non aspettare oltre 1500ms
+          setTimeout(function () { proceedWith(activeIdx); }, 1500);
+        } else {
+          proceedWith(activeIdx);
+        }
       }
 
       if (frame) {
-        loadCurrentDomain();
+        probeAndBoot();
         document.addEventListener('keydown', function () {
           try { frame.focus(); } catch (e) {}
         });
       }
 
-      // Safeguard definitivo per nascondere comunque lo splash dopo 14 secondi
-      setTimeout(ready, 14000);
+      // Safeguard definitivo per nascondere comunque lo splash dopo 12 secondi
+      setTimeout(ready, 12000);
     </script>
   </body>
 </html>

@@ -17,6 +17,12 @@ export interface UsageCheckResult {
         serverlessPercent: number
         edgePercent: number
     }
+    hustleUsage?: {
+        maxUsagePercent: number
+        bandwidthPercent: number
+        serverlessPercent: number
+        edgePercent: number
+    }
     switched: boolean
     error?: string
 }
@@ -39,6 +45,12 @@ interface VercelRequestsUsageResponse {
 export const PRIMARY_DOMAIN = 'the-fplace.vercel.app'
 export const SECONDARY_DOMAIN = 'the-hustle-place.vercel.app'
 export const DEFAULT_THRESHOLD_PERCENT = 75.0
+
+// Progetti Vercel predefiniti
+export const DEFAULT_FPLACE_PROJECT_ID = 'prj_DzcGoI2eOUOf09Z52rJvlgSzRN00'
+export const DEFAULT_FPLACE_TEAM_ID = 'team_WFQWaPaIHEfaHYT1DdvgmfdF'
+export const DEFAULT_HUSTLE_PROJECT_ID = 'prj_wg2yhpv0PDv5StYwebcxgsshPAhn'
+export const DEFAULT_HUSTLE_TEAM_ID = 'team_xeVfJQu9nAFDQS3vn0OiJIt5'
 
 // In-memory cache for Edge Middleware & API lookups (TTL 60s)
 let memoryActiveDomain = PRIMARY_DOMAIN
@@ -76,11 +88,11 @@ export async function fetchVercelUsage(options?: {
     teamId?: string
 }): Promise<VercelUsageMetrics> {
     const token = options?.token || process.env.VERCEL_API_TOKEN
-    const projectId = options?.projectId || process.env.VERCEL_PROJECT_ID || process.env.VERCEL_FPLACE_PROJECT_ID
-    const teamId = options?.teamId || process.env.VERCEL_TEAM_ID
+    const projectId = options?.projectId || process.env.VERCEL_FPLACE_PROJECT_ID || DEFAULT_FPLACE_PROJECT_ID
+    const teamId = options?.teamId || process.env.VERCEL_TEAM_ID || DEFAULT_FPLACE_TEAM_ID
 
     if (!token || !projectId) {
-        throw new Error('Credenziali Vercel non configurate (VERCEL_API_TOKEN o VERCEL_PROJECT_ID assente)')
+        throw new Error('Credenziali Vercel non configurate (token o projectId assente)')
     }
 
     const now = new Date()
@@ -188,14 +200,47 @@ export async function checkAndUpdateVercelUsage(): Promise<UsageCheckResult> {
         }
     }
 
-    const metrics = await fetchVercelUsage()
-    const { maxPercent, bandwidthPct, serverlessPct, edgePct } = calculateMaxUsagePercent(metrics)
+    // 1. Rilevamento usage the-fplace
+    const fplaceMetrics = await fetchVercelUsage({
+        token: process.env.VERCEL_API_TOKEN,
+        projectId: process.env.VERCEL_FPLACE_PROJECT_ID || DEFAULT_FPLACE_PROJECT_ID,
+        teamId: process.env.VERCEL_TEAM_ID || DEFAULT_FPLACE_TEAM_ID,
+    })
+    const fplaceCalc = calculateMaxUsagePercent(fplaceMetrics)
 
+    // 2. Rilevamento usage the-hustle-place (se configurato con token)
+    let hustleCalc: ReturnType<typeof calculateMaxUsagePercent> | null = null
+    const hustleToken = process.env.VERCEL_HUSTLE_API_TOKEN || process.env.VERCEL_API_TOKEN
+    const hustleProjectId = process.env.VERCEL_HUSTLE_PROJECT_ID || DEFAULT_HUSTLE_PROJECT_ID
+    const hustleTeamId = process.env.VERCEL_HUSTLE_TEAM_ID || DEFAULT_HUSTLE_TEAM_ID
+
+    if (hustleToken) {
+        try {
+            const hustleMetrics = await fetchVercelUsage({
+                token: hustleToken,
+                projectId: hustleProjectId,
+                teamId: hustleTeamId,
+            })
+            hustleCalc = calculateMaxUsagePercent(hustleMetrics)
+        } catch {
+            // Silenzioso se il token per il secondo account non è ancora configurato
+        }
+    }
+
+    // 3. Calcolo bidirezionale del dominio attivo
     let nextActiveDomain = previousActiveDomain
     if (autoFailoverEnabled) {
-        if (maxPercent >= threshold) {
+        const fplaceExceeded = fplaceCalc.maxPercent >= threshold
+        const hustleExceeded = hustleCalc ? hustleCalc.maxPercent >= threshold : false
+
+        if (fplaceExceeded && !hustleExceeded) {
+            // the-fplace ha superato il 75% -> passa a the-hustle-place
             nextActiveDomain = SECONDARY_DOMAIN
-        } else {
+        } else if (hustleExceeded && !fplaceExceeded) {
+            // the-hustle-place ha superato il 75% -> torna su the-fplace
+            nextActiveDomain = PRIMARY_DOMAIN
+        } else if (!fplaceExceeded) {
+            // the-fplace è sotto il 75% (es. nuovo mese) -> torna sul primario
             nextActiveDomain = PRIMARY_DOMAIN
         }
     }
@@ -211,7 +256,7 @@ export async function checkAndUpdateVercelUsage(): Promise<UsageCheckResult> {
                     primaryDomain: PRIMARY_DOMAIN,
                     secondaryDomain: SECONDARY_DOMAIN,
                     activeDomain: nextActiveDomain,
-                    fplaceUsagePercent: maxPercent.toFixed(2),
+                    fplaceUsagePercent: fplaceCalc.maxPercent.toFixed(2),
                     thresholdPercent: threshold.toFixed(2),
                     autoFailoverEnabled,
                     lastCheckedAt: new Date(),
@@ -221,7 +266,7 @@ export async function checkAndUpdateVercelUsage(): Promise<UsageCheckResult> {
                     target: systemDomainRouting.id,
                     set: {
                         activeDomain: nextActiveDomain,
-                        fplaceUsagePercent: maxPercent.toFixed(2),
+                        fplaceUsagePercent: fplaceCalc.maxPercent.toFixed(2),
                         lastCheckedAt: new Date(),
                         updatedAt: new Date(),
                     },
@@ -236,13 +281,23 @@ export async function checkAndUpdateVercelUsage(): Promise<UsageCheckResult> {
 
     return {
         success: true,
-        maxUsagePercent: Number(maxPercent.toFixed(2)),
+        maxUsagePercent: Number(fplaceCalc.maxPercent.toFixed(2)),
         activeDomain: nextActiveDomain,
         fplaceUsage: {
-            bandwidthPercent: Number(bandwidthPct.toFixed(2)),
-            serverlessPercent: Number(serverlessPct.toFixed(2)),
-            edgePercent: Number(edgePct.toFixed(2)),
+            bandwidthPercent: Number(fplaceCalc.bandwidthPct.toFixed(2)),
+            serverlessPercent: Number(fplaceCalc.serverlessPct.toFixed(2)),
+            edgePercent: Number(fplaceCalc.edgePct.toFixed(2)),
         },
+        ...(hustleCalc
+            ? {
+                  hustleUsage: {
+                      maxUsagePercent: Number(hustleCalc.maxPercent.toFixed(2)),
+                      bandwidthPercent: Number(hustleCalc.bandwidthPct.toFixed(2)),
+                      serverlessPercent: Number(hustleCalc.serverlessPct.toFixed(2)),
+                      edgePercent: Number(hustleCalc.edgePct.toFixed(2)),
+                  },
+              }
+            : {}),
         switched,
     }
 }

@@ -44,12 +44,32 @@ export async function middleware(request: NextRequest) {
     const host = request.headers.get('host') || ''
     const path = request.nextUrl.pathname
 
-    // Se la richiesta arriva su the-fplace ma il target attivo è the-hustle-place (soglia 75% superata)
-    if (host.includes('the-fplace.vercel.app')) {
+    const isFplace = host.includes('the-fplace.vercel.app')
+    const isHustlePlace = host.includes('the-hustle-place.vercel.app')
+
+    // Routing interscambiabile e bidirezionale tra i due domini
+    if (isFplace || isHustlePlace) {
         const activeDomain = await resolveActiveDomain(request)
-        if (activeDomain.includes('the-hustle-place.vercel.app')) {
+        const targetIsHustle = activeDomain.includes('the-hustle-place.vercel.app')
+        const targetIsFplace = activeDomain.includes('the-fplace.vercel.app')
+
+        let shouldRedirect = false
+        let targetHost = ''
+
+        // Da the-fplace verso the-hustle-place
+        if (isFplace && targetIsHustle) {
+            shouldRedirect = true
+            targetHost = 'the-hustle-place.vercel.app'
+        }
+        // Da the-hustle-place verso the-fplace
+        else if (isHustlePlace && targetIsFplace) {
+            shouldRedirect = true
+            targetHost = 'the-fplace.vercel.app'
+        }
+
+        if (shouldRedirect) {
             const redirectUrl = new URL(request.url)
-            redirectUrl.host = 'the-hustle-place.vercel.app'
+            redirectUrl.host = targetHost
             redirectUrl.protocol = 'https'
 
             // Preservazione identità e profilo TV tramite handoff device_id

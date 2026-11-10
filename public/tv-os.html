@@ -1042,7 +1042,9 @@
     postJson('/api/watch-history', body, function () {});
   }
   try {
-    var savedHouse = storeGet('tv.house');
+    var savedHouse = '';
+    try { savedHouse = window.localStorage.getItem('thp_tv_house') || ''; } catch (eLocal) {}
+    if (!savedHouse) savedHouse = storeGet('tv.house');
     if (savedHouse) {
       var parsedHouse = JSON.parse(savedHouse);
       if (parsedHouse && parsedHouse.profiles && parsedHouse.profiles.length) {
@@ -1879,12 +1881,14 @@
     household = data;
     rememberDeviceId(data.deviceId);
     setHistoryProfile(data.activeProfileId);
-    storeSet('tv.house', JSON.stringify({
+    var housePayload = JSON.stringify({
       configured: data.configured,
       householdId: data.householdId,
       activeProfileId: data.activeProfileId,
       profiles: data.profiles
-    }));
+    });
+    storeSet('tv.house', housePayload);
+    try { window.localStorage.setItem('thp_tv_house', housePayload); } catch (e) {}
   }
 
   function whenHousehold(done) {
@@ -2003,27 +2007,37 @@
     setHistoryProfile(profile.id);
     invalidatePersonal();
     renderBoot();
-    function afterReady() {
-      warmPersonalCatalog(function () {
+    var switchDone = false;
+    var personalDone = false;
+    var readyDispatched = false;
+    function tryFinish() {
+      if (readyDispatched) return;
+      if (switchDone && personalDone) {
+        readyDispatched = true;
         var bag = composeHome();
         warmupUrls(firstWindowUrls('home', bag), function () {
           go('/living/home');
         });
-      });
+      }
     }
+    warmPersonalCatalog(function () {
+      personalDone = true;
+      tryFinish();
+    });
     if (profile.id === 'local') {
-      afterReady();
+      switchDone = true;
+      tryFinish();
       return;
     }
-    var done = false;
-    function afterSwitch(data) {
-      if (done) return;
-      done = true;
+    postJson('/api/household/switch', { profileId: profile.id }, function (data) {
       if (data && data.profiles) applyHousehold(data);
-      afterReady();
-    }
-    postJson('/api/household/switch', { profileId: profile.id }, afterSwitch);
-    setTimeout(function () { afterSwitch(null); }, 8000);
+      switchDone = true;
+      tryFinish();
+    });
+    setTimeout(function () {
+      switchDone = true;
+      tryFinish();
+    }, 4500);
   }
 
   function renderNav(active) {
@@ -2774,17 +2788,27 @@
       platformSeriesTitle: '', platformMoviesTitle: '',
       ready: false
     };
-    var step = runSteps(9, function () {
+    var notified = false;
+    function notifyReady() {
+      if (notified) return;
+      notified = true;
       bag.ready = true;
       catalogShared = bag;
       var queue = catalogSharedWaiters;
       catalogSharedWaiters = null;
       flushWaiters(queue);
-    });
-    getJson('/api/catalog/top-10', function (json) { bag.top = listOf(json); step(); }, 8000);
-    getJson('/api/catalog/popular/movies', function (json) { bag.movies = listOf(json); step(); }, 8000);
+    }
+    var coreLeft = 3;
+    function coreStep() {
+      coreLeft -= 1;
+      if (coreLeft <= 0) notifyReady();
+    }
+    setTimeout(notifyReady, 3500);
+    var step = function () {};
+    getJson('/api/catalog/top-10', function (json) { bag.top = listOf(json); coreStep(); }, 6000);
+    getJson('/api/catalog/popular/movies', function (json) { bag.movies = listOf(json); coreStep(); }, 6000);
     getJson('/api/catalog/latest/movies', function (json) { bag.recent = listOf(json); step(); }, 8000);
-    getJson('/api/catalog/popular/tv', function (json) { bag.tv = listOf(json); step(); }, 8000);
+    getJson('/api/catalog/popular/tv', function (json) { bag.tv = listOf(json); coreStep(); }, 6000);
     getJson('/api/catalog/latest/tv', function (json) { bag.tvRecent = listOf(json); step(); }, 8000);
     getJson('/api/catalog/coming-soon', function (json) { bag.coming = listOf(json); step(); }, 8000);
     getJson('/api/catalog/coming-to-cinema', function (json) { bag.cinema = listOf(json); step(); }, 12000);
@@ -3030,12 +3054,12 @@
     var src;
     var limit;
     if (!rail || !rail.items) return;
-    limit = rail.items.length > 40 ? 40 : rail.items.length;
+    limit = rail.items.length > 6 ? 6 : rail.items.length;
     for (i = 0; i < limit; i++) {
       item = rail.items[i];
       src = rail.id === 'hist'
-        ? (img(item, 'w780', 'back') || img(item, 'w500', 'poster'))
-        : img(item, 'w500', 'poster');
+        ? (img(item, 'w780', 'back') || img(item, 'w342', 'poster'))
+        : img(item, 'w342', 'poster');
       if (src) urls.push(src);
     }
   }

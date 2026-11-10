@@ -186,6 +186,23 @@ describe('Domain Failover & 75% Usage Switch Ingegnerizzazione', () => {
                 return { action: 'next' }
             }
 
+            // Symmetrical failover: from the-hustle-place back to the-fplace
+            if (isHustlePlace && req.activeDomain.includes('the-fplace.vercel.app')) {
+                const target = new URL(req.url)
+                target.host = 'the-fplace.vercel.app'
+                target.protocol = 'https'
+
+                if (req.cookieDeviceId && !target.searchParams.has('device_id')) {
+                    target.searchParams.set('device_id', req.cookieDeviceId)
+                }
+
+                return {
+                    action: 'redirect',
+                    destination: target.toString(),
+                    statusCode: 307,
+                }
+            }
+
             // Normal operation on the-fplace
             if (urlObj.pathname === '/living' || urlObj.pathname.startsWith('/living/')) {
                 return { action: 'rewrite', destination: '/tv-os.html' }
@@ -220,6 +237,20 @@ describe('Domain Failover & 75% Usage Switch Ingegnerizzazione', () => {
             expect(result.destination).toBe('/tv-os.html')
         })
 
+        it('redirects the-hustle-place requests back to the-fplace when the-fplace is active', () => {
+            const result = simulateMiddleware({
+                host: 'the-hustle-place.vercel.app',
+                url: 'https://the-hustle-place.vercel.app/living/movies',
+                cookieDeviceId: 'a5555555-5555-4555-8555-555555555555',
+                activeDomain: 'the-fplace.vercel.app',
+            })
+
+            expect(result.action).toBe('redirect')
+            expect(result.statusCode).toBe(307)
+            expect(result.destination).toContain('https://the-fplace.vercel.app/living/movies')
+            expect(result.destination).toContain('device_id=a5555555-5555-4555-8555-555555555555')
+        })
+
         it('serves tv-os.html normally on the-fplace when usage is below threshold', () => {
             const result = simulateMiddleware({
                 host: 'the-fplace.vercel.app',
@@ -229,6 +260,20 @@ describe('Domain Failover & 75% Usage Switch Ingegnerizzazione', () => {
 
             expect(result.action).toBe('rewrite')
             expect(result.destination).toBe('/tv-os.html')
+        })
+
+        it('redirects the-hustle-place requests back to the-fplace when the-fplace is active', () => {
+            const result = simulateMiddleware({
+                host: 'the-hustle-place.vercel.app',
+                url: 'https://the-hustle-place.vercel.app/living/movies',
+                cookieDeviceId: 'a5555555-5555-4555-8555-555555555555',
+                activeDomain: 'the-fplace.vercel.app',
+            })
+
+            expect(result.action).toBe('redirect')
+            expect(result.statusCode).toBe(307)
+            expect(result.destination).toContain('https://the-fplace.vercel.app/living/movies')
+            expect(result.destination).toContain('device_id=a5555555-5555-4555-8555-555555555555')
         })
     })
 

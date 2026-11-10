@@ -54,18 +54,41 @@ function png(width, height, paint) {
     ])
 }
 
-function inBox(x, y, left, top, size) {
-    return x >= left && x < left + size && y >= top && y < top + size
+function inRoundedBox(x, y, left, top, size, radius) {
+    if (x < left || x >= left + size || y < top || y >= top + size) return false
+    const r = radius
+    if (x < left + r && y < top + r) {
+        const dx = (left + r) - x - 0.5
+        const dy = (top + r) - y - 0.5
+        return (dx * dx + dy * dy) <= (r * r)
+    }
+    if (x >= left + size - r && y < top + r) {
+        const dx = x - (left + size - r) + 0.5
+        const dy = (top + r) - y - 0.5
+        return (dx * dx + dy * dy) <= (r * r)
+    }
+    if (x < left + r && y >= top + size - r) {
+        const dx = (left + r) - x - 0.5
+        const dy = y - (top + size - r) + 0.5
+        return (dx * dx + dy * dy) <= (r * r)
+    }
+    if (x >= left + size - r && y >= top + size - r) {
+        const dx = x - (left + size - r) + 0.5
+        const dy = y - (top + size - r) + 0.5
+        return (dx * dx + dy * dy) <= (r * r)
+    }
+    return true
 }
 
 function inH(x, y, left, top, size) {
-    const pad = size * 0.22
-    const bar = Math.max(3, Math.round(size * 0.16))
-    const lx = left + pad
-    const rx = left + size - pad - bar
+    const padX = size * 0.28
+    const padY = size * 0.25
+    const bar = Math.max(2, Math.round(size * 0.14))
+    const lx = left + padX
+    const rx = left + size - padX - bar
     const midY = top + size / 2 - bar / 2
-    const inLeft = x >= lx && x < lx + bar && y >= top + pad && y < top + size - pad
-    const inRight = x >= rx && x < rx + bar && y >= top + pad && y < top + size - pad
+    const inLeft = x >= lx && x < lx + bar && y >= top + padY && y < top + size - padY
+    const inRight = x >= rx && x < rx + bar && y >= top + padY && y < top + size - padY
     const inCross = x >= lx && x < rx + bar && y >= midY && y < midY + bar
     return inLeft || inRight || inCross
 }
@@ -73,8 +96,9 @@ function inH(x, y, left, top, size) {
 function markPaint(size) {
     const inset = Math.floor(size * 0.12)
     const box = size - inset * 2
+    const radius = Math.round(box * 0.22)
     return function paint(x, y) {
-        if (inBox(x, y, inset, inset, box)) {
+        if (inRoundedBox(x, y, inset, inset, box, radius)) {
             return inH(x, y, inset, inset, box) ? [17, 17, 17, 255] : [255, 255, 255, 255]
         }
         return [0, 0, 0, 255]
@@ -82,10 +106,12 @@ function markPaint(size) {
 }
 
 function splashPaint(x, y) {
-    const box = 120
+    // Esattamente identico a #splash i di index.html: 72x72 con border-radius 16px, centrato
+    const box = 72
+    const radius = 16
     const left = Math.round((1920 - box) / 2)
-    const top = Math.round((1080 - box) / 2) - 36
-    if (inBox(x, y, left, top, box)) {
+    const top = Math.round((1080 - box) / 2)
+    if (inRoundedBox(x, y, left, top, box, radius)) {
         return inH(x, y, left, top, box) ? [17, 17, 17, 255] : [255, 255, 255, 255]
     }
     return [0, 0, 0, 255]
@@ -94,4 +120,4 @@ function splashPaint(x, y) {
 writeFileSync(join(dir, 'icon.png'), png(80, 80, markPaint(80)))
 writeFileSync(join(dir, 'largeIcon.png'), png(130, 130, markPaint(130)))
 writeFileSync(join(dir, 'splashBackground.png'), png(1920, 1080, splashPaint))
-console.log('icone e splash webOS scritti')
+console.log('Icone e splash webOS generati con successo (72x72 con angoli stondati 16px, centrati al pixel)')
